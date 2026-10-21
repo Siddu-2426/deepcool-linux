@@ -144,18 +144,6 @@ jobs:
             echo "short_sha=$short_sha"
             echo "tag=snapshot-$short_sha"
           } >> "$GITHUB_ENV"
-          {
-            echo "version=$version"
-            echo "commit=$GITHUB_SHA"
-            echo "ref=$GITHUB_REF_NAME"
-            echo "run=$GITHUB_RUN_ID"
-            echo "built=$GITHUB_RUN_ATTEMPT"
-          } > release/BUILD-INFO.txt
-          (
-            cd release
-            sha256sum ./*.rpm ./*.deb | sed 's|^\([^ ]*\)  \./|\1  |' > SHA256SUMS
-          )
-          cat release/SHA256SUMS
 
       - name: Create or update release
         env:
@@ -164,17 +152,9 @@ jobs:
           set -euo pipefail
           title="DeepCool Control ${version} (${short_sha})"
           notes=$(cat <<EOF
-          Automated snapshot build for commit \`${GITHUB_SHA}\`.
+          Automated build for commit \`${GITHUB_SHA}\`.
 
-          ### Packages
-
-          - \`deepcool-control-*.rpm\` — Fedora, RHEL and compatible distributions
-          - \`deepcool-control_*.deb\` — Debian, Ubuntu and compatible distributions
-          - \`SHA256SUMS\` — verify with \`sha256sum -c SHA256SUMS\`
-          - \`BUILD-INFO.txt\` — version and commit metadata
-
-          Snapshot releases are marked pre-release. Install a package with your
-          distribution's package manager:
+          ### Install
 
           \`\`\`bash
           sudo dnf install ./deepcool-control-*.rpm
@@ -187,14 +167,15 @@ jobs:
             gh release edit "$tag" \
               --title "$title" \
               --notes "$notes" \
-              --prerelease
-            gh release upload "$tag" release/* --clobber
+              --prerelease=false \
+              --latest
+            gh release upload "$tag" release/*.rpm release/*.deb --clobber
           else
-            gh release create "$tag" release/* \
+            gh release create "$tag" release/*.rpm release/*.deb \
               --target "$GITHUB_SHA" \
               --title "$title" \
               --notes "$notes" \
-              --prerelease
+              --latest
           fi
 
           {

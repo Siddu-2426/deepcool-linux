@@ -5,7 +5,7 @@
 
 Name:           deepcool-control
 Version:        1.1.3
-Release:        1%{?dist}
+Release:        1
 Summary:        Native GTK4 app for DeepCool CH-series digital displays
 
 License:        MIT

@@ -10,13 +10,6 @@ rm -f "$ROOT"/dist/*.rpm "$ROOT"/dist/*.deb "$ROOT"/dist/SHA256SUMS
 "$ROOT/packaging/build-rpm.sh"
 "$ROOT/packaging/build-deb.sh"
 
-(
-  cd "$ROOT/dist"
-  sha256sum ./*.rpm ./*.deb | sed 's|^\([^ ]*\)  \./|\1  |' > SHA256SUMS
-)
-
 echo
 echo "Packages:"
 ls -lh "$ROOT/dist"/*.rpm "$ROOT/dist"/*.deb
-echo
-cat "$ROOT/dist/SHA256SUMS"
