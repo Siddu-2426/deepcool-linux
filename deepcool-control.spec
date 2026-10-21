@@ -1,4 +1,7 @@
 %global appdir %{_prefix}/lib/deepcool-control
+# systemd-rpm-macros defines this on Fedora, but keep the spec usable in
+# minimal build roots where the macro package is not installed.
+%{!?_udevrulesdir:%global _udevrulesdir %{_prefix}/lib/udev/rules.d}
 
 Name:           deepcool-control
 Version:        1.1.3
