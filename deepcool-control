@@ -1,0 +1,8 @@
+#!/bin/sh
+# Source-tree launcher for DeepCool Control.
+# Installed copies use the generated launcher in ~/.local/bin or /usr/local/bin.
+set -eu
+
+HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+export PYTHONPATH="$HERE/src${PYTHONPATH:+:$PYTHONPATH}"
+exec python3 -m deepcool_control "$@"

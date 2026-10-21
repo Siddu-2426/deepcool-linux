@@ -1,0 +1,33 @@
+deepcool-control (1.1.3) unstable; urgency=medium
+
+  * Reload display settings changed in the GUI while the background service runs.
+
+ -- DeepCool Linux contributors <noreply@example.com>  Thu, 22 Oct 2026 00:00:00 +0000
+
+deepcool-control (1.1.2) unstable; urgency=medium
+
+  * Restart the background display daemon automatically and without a retry limit.
+
+ -- DeepCool Linux contributors <noreply@example.com>  Thu, 22 Oct 2026 00:00:00 +0000
+
+deepcool-control (1.1.1) unstable; urgency=medium
+
+  * Keep the display update timer alive after transient write failures.
+  * Open hidraw non-blocking so a stalled display cannot freeze the UI.
+
+ -- DeepCool Linux contributors <noreply@example.com>  Thu, 22 Oct 2026 00:00:00 +0000
+
+deepcool-control (1.1.0) unstable; urgency=medium
+
+  * Add independent auto-cycle support for the GPU readout.
+  * Update display settings and preview to match the new secondary mode.
+
+ -- DeepCool Linux contributors <noreply@example.com>  Thu, 22 Oct 2026 00:00:00 +0000
+
+deepcool-control (1.0.0) unstable; urgency=medium
+
+  * Initial Linux release.
+  * Native GTK4/libadwaita interface for DeepCool CH-series displays.
+  * RPM and DEB packaging for major Linux distributions.
+
+ -- DeepCool Linux contributors <noreply@example.com>  Thu, 22 Oct 2026 00:00:00 +0000

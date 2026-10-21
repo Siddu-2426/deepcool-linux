@@ -1,0 +1,206 @@
+name: Build and release packages
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+# One run per commit. A second push of the same commit waits instead of
+# racing the release upload.
+concurrency:
+  group: release-${{ github.sha }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate source
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run unit tests
+        run: python3 -m unittest discover -s tests -v
+
+      - name: Compile Python sources
+        run: python3 -m compileall -q src
+
+      - name: Validate shell scripts
+        run: bash -n install.sh uninstall.sh packaging/*.sh
+
+  rpm:
+    name: Build RPM (Fedora 44)
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Clean build output
+        run: |
+          rm -rf build dist
+          mkdir -p dist
+
+      - name: Build in Fedora container
+        run: |
+          docker run --rm \
+            --volume "$PWD:/work" \
+            --workdir /work \
+            fedora:44 \
+            bash -c '
+              set -euo pipefail
+              dnf -y install rpm-build desktop-file-utils python3 tar gzip findutils
+              ./packaging/build-rpm.sh
+            '
+
+      - name: Restore workspace ownership
+        run: sudo chown -R "$(id -u):$(id -g)" build dist
+
+      - name: Upload RPM
+        uses: actions/upload-artifact@v4
+        with:
+          name: rpm-package
+          path: dist/*.rpm
+          if-no-files-found: error
+          retention-days: 7
+
+  deb:
+    name: Build DEB (Debian 12)
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Clean build output
+        run: |
+          rm -rf build dist
+          mkdir -p dist
+
+      - name: Build in Debian container
+        run: |
+          docker run --rm \
+            --volume "$PWD:/work" \
+            --workdir /work \
+            debian:bookworm-slim \
+            bash -c '
+              set -euo pipefail
+              apt-get update
+              apt-get install -y --no-install-recommends python3 dpkg-dev
+              ./packaging/build-deb.sh
+            '
+
+      - name: Restore workspace ownership
+        run: sudo chown -R "$(id -u):$(id -g)" build dist
+
+      - name: Upload DEB
+        uses: actions/upload-artifact@v4
+        with:
+          name: deb-package
+          path: dist/*.deb
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: Publish snapshot release
+    needs:
+      - validate
+      - rpm
+      - deb
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Download package artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: "*-package"
+          path: release
+          merge-multiple: true
+
+      - name: Prepare release metadata
+        run: |
+          set -euo pipefail
+          version=$(python3 -c 'import pathlib, tomllib; print(tomllib.loads(pathlib.Path("pyproject.toml").read_text(encoding="utf-8"))["project"]["version"])')
+          short_sha=${GITHUB_SHA::12}
+          {
+            echo "version=$version"
+            echo "short_sha=$short_sha"
+            echo "tag=snapshot-$short_sha"
+          } >> "$GITHUB_ENV"
+          {
+            echo "version=$version"
+            echo "commit=$GITHUB_SHA"
+            echo "ref=$GITHUB_REF_NAME"
+            echo "run=$GITHUB_RUN_ID"
+            echo "built=$GITHUB_RUN_ATTEMPT"
+          } > release/BUILD-INFO.txt
+          (
+            cd release
+            sha256sum ./*.rpm ./*.deb | sed 's|^\([^ ]*\)  \./|\1  |' > SHA256SUMS
+          )
+          cat release/SHA256SUMS
+
+      - name: Create or update release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          title="DeepCool Control ${version} (${short_sha})"
+          notes=$(cat <<EOF
+          Automated snapshot build for commit \`${GITHUB_SHA}\`.
+
+          ### Packages
+
+          - \`deepcool-control-*.rpm\` — Fedora, RHEL and compatible distributions
+          - \`deepcool-control_*.deb\` — Debian, Ubuntu and compatible distributions
+          - \`SHA256SUMS\` — verify with \`sha256sum -c SHA256SUMS\`
+          - \`BUILD-INFO.txt\` — version and commit metadata
+
+          Snapshot releases are marked pre-release. Install a package with your
+          distribution's package manager:
+
+          \`\`\`bash
+          sudo dnf install ./deepcool-control-*.rpm
+          sudo apt install ./deepcool-control_*.deb
+          \`\`\`
+          EOF
+          )
+
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release edit "$tag" \
+              --title "$title" \
+              --notes "$notes" \
+              --prerelease
+            gh release upload "$tag" release/* --clobber
+          else
+            gh release create "$tag" release/* \
+              --target "$GITHUB_SHA" \
+              --title "$title" \
+              --notes "$notes" \
+              --prerelease
+          fi
+
+          {
+            echo "### Release published"
+            echo
+            echo "- Tag: \`$tag\`"
+            echo "- Version: \`$version\`"
+            echo "- Commit: \`$GITHUB_SHA\`"
+          } >> "$GITHUB_STEP_SUMMARY"

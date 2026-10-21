@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=DeepCool Control
+GenericName=Case Display Control
+Comment=Control the CH-series digital display and monitor temperatures
+Exec=deepcool-control
+Icon=io.github.deepcool.Control
+Terminal=false
+Categories=Settings;HardwareSettings;
+Keywords=DeepCool;CH360;CH560;display;temperature;fan;hardware;
+StartupNotify=true
+StartupWMClass=io.github.deepcool.Control

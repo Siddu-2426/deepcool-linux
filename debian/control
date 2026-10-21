@@ -1,0 +1,21 @@
+Source: deepcool-control
+Section: utils
+Priority: optional
+Maintainer: DeepCool Linux contributors <noreply@example.com>
+Build-Depends: debhelper-compat (= 13), dh-python, python3-all, python3-setuptools, python3-wheel, desktop-file-utils
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+
+Package: deepcool-control
+Architecture: all
+Depends: ${misc:Depends}, ${python3:Depends}, python3-gi, gir1.2-gtk-4.0, gir1.2-adw-1, python3-psutil
+Suggests: nvidia-driver
+Description: native control app for DeepCool CH-series digital displays
+ A GTK4/libadwaita application that reads local CPU and GPU sensors and
+ drives the two three-digit readouts and ten-cell load bars on DeepCool
+ CH-series USB displays.
+ .
+ Supported displays include CH360 DIGITAL, CH560 DIGITAL and MORPHEUS.
+ .
+ This is an independent educational project and is not affiliated with
+ DeepCool.

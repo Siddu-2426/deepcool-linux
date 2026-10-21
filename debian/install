@@ -1,0 +1,3 @@
+data/io.github.deepcool.Control.desktop usr/share/applications/
+data/icons/hicolor/scalable/apps/io.github.deepcool.Control.svg usr/share/icons/hicolor/scalable/apps/
+data/99-deepcool-digital.rules usr/lib/udev/rules.d/

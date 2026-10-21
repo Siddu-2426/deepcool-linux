@@ -1,0 +1,15 @@
+[Unit]
+Description=DeepCool Control display daemon
+After=graphical-session.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/deepcool-control --daemon
+Restart=always
+RestartSec=3
+TimeoutStopSec=5
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=default.target

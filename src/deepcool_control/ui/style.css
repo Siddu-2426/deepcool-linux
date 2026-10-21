@@ -1,0 +1,335 @@
+/* DeepCool Control — Adwaita companion styling */
+
+window.deepcool-window {
+  background-color: @window_bg_color;
+}
+
+.app-header {
+  background-color: alpha(@window_bg_color, 0.92);
+  border-bottom: 1px solid alpha(@window_fg_color, 0.07);
+}
+
+/* ------------------------------------------------------------------ sidebar */
+.sidebar {
+  background-color: alpha(@window_fg_color, 0.028);
+}
+
+.eyebrow {
+  font-size: 10px;
+  font-weight: 700;
+  opacity: 0.42;
+}
+
+.nav-list {
+  background-color: transparent;
+  padding: 0 10px;
+}
+
+.nav-list row {
+  background-color: transparent;
+  border-radius: 10px;
+  margin: 2px 0;
+  padding: 0;
+  transition: background-color 120ms ease;
+}
+
+.nav-list row:hover {
+  background-color: alpha(@window_fg_color, 0.055);
+}
+
+.nav-list row:selected {
+  background-color: @accent_soft;
+}
+
+.nav-list row:selected .nav-label,
+.nav-list row:selected .nav-icon {
+  color: @accent_color;
+}
+
+.nav-label {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.nav-icon {
+  opacity: 0.72;
+}
+
+.device-mini {
+  background-color: alpha(@window_fg_color, 0.038);
+  border: 1px solid alpha(@window_fg_color, 0.075);
+  border-radius: 14px;
+  padding: 14px;
+}
+
+.status-dot {
+  border-radius: 999px;
+  background-color: alpha(@window_fg_color, 0.22);
+}
+
+.status-dot.connected {
+  background-color: #34d399;
+}
+
+.status-dot.busy {
+  background-color: #fbbf24;
+}
+
+.status-dot.disconnected {
+  background-color: alpha(@window_fg_color, 0.22);
+}
+
+.mini-name {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.mini-meta {
+  font-size: 11px;
+  opacity: 0.46;
+}
+
+button.mini-action {
+  padding: 0;
+  margin-top: 2px;
+  font-size: 11px;
+  font-weight: 600;
+  color: @accent_color;
+}
+
+.sidebar-version {
+  font-size: 10px;
+  opacity: 0.3;
+}
+
+/* --------------------------------------------------------------- status pill */
+.status-pill {
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 11px;
+  font-weight: 700;
+  background-color: alpha(@window_fg_color, 0.06);
+}
+
+.status-pill.compact {
+  padding: 4px 10px;
+  font-size: 10px;
+}
+
+.status-pill.connected {
+  color: #1f9d6b;
+  background-color: alpha(#34d399, 0.16);
+}
+
+.status-pill.busy {
+  color: #a16900;
+  background-color: alpha(#fbbf24, 0.17);
+}
+
+.status-pill.disconnected {
+  color: alpha(@window_fg_color, 0.55);
+  background-color: alpha(@window_fg_color, 0.06);
+}
+
+/* ----------------------------------------------------------------- page text */
+.page-title {
+  font-size: 30px;
+  font-weight: 800;
+}
+
+.page-subtitle {
+  font-size: 14px;
+  opacity: 0.58;
+}
+
+.section-title {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.section-subtitle {
+  font-size: 12px;
+  opacity: 0.48;
+}
+
+/* -------------------------------------------------------------------- hero */
+.hero-card {
+  background-color: alpha(@window_fg_color, 0.032);
+  border: 1px solid alpha(@window_fg_color, 0.08);
+  border-radius: 20px;
+  padding: 22px;
+  box-shadow: 0 1px 0 alpha(#ffffff, 0.03) inset;
+}
+
+.hero-title {
+  font-size: 25px;
+  font-weight: 800;
+}
+
+.hero-meta {
+  font-size: 13px;
+  opacity: 0.55;
+}
+
+button.hero-link,
+button.inline-link {
+  color: @accent_color;
+  padding-left: 0;
+  padding-right: 0;
+  font-weight: 600;
+}
+
+button.hero-link:hover,
+button.inline-link:hover {
+  background-color: transparent;
+}
+
+.live-badge {
+  font-size: 10px;
+  font-weight: 800;
+  padding: 5px 11px;
+  border-radius: 999px;
+  background-color: alpha(@window_fg_color, 0.06);
+  color: alpha(@window_fg_color, 0.45);
+}
+
+.live-badge.active {
+  color: @accent_color;
+  background-color: @accent_soft;
+}
+
+/* ------------------------------------------------------------------- cards */
+.card {
+  background-color: alpha(@window_fg_color, 0.032);
+  border: 1px solid alpha(@window_fg_color, 0.075);
+  border-radius: 16px;
+  padding: 18px;
+}
+
+.stat-card {
+  background-color: alpha(@window_fg_color, 0.032);
+  border: 1px solid alpha(@window_fg_color, 0.075);
+  border-radius: 16px;
+  padding: 16px 17px 10px 17px;
+  transition: border-color 140ms ease, background-color 140ms ease;
+}
+
+.stat-card:hover {
+  border-color: alpha(@accent_color, 0.32);
+  background-color: alpha(@window_fg_color, 0.042);
+}
+
+.stat-icon {
+  color: @accent_color;
+  opacity: 0.92;
+}
+
+.stat-title {
+  font-size: 12px;
+  font-weight: 600;
+  opacity: 0.58;
+}
+
+.stat-value {
+  font-size: 33px;
+  font-weight: 800;
+}
+
+.stat-unit {
+  font-size: 13px;
+  font-weight: 600;
+  opacity: 0.5;
+}
+
+.stat-subtitle {
+  font-size: 11px;
+  opacity: 0.44;
+}
+
+.sensor-row {
+  padding: 8px 0;
+}
+
+.sensor-icon {
+  color: @accent_color;
+  opacity: 0.78;
+}
+
+.sensor-name {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.sensor-detail {
+  font-size: 11px;
+  opacity: 0.44;
+}
+
+.sensor-value {
+  font-size: 13px;
+  font-weight: 700;
+  opacity: 0.82;
+}
+
+/* --------------------------------------------------------------- mode chips */
+button.mode-chip {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 6px 8px;
+  border-radius: 9px;
+  background-color: alpha(@window_fg_color, 0.055);
+  border: 1px solid transparent;
+  box-shadow: none;
+}
+
+button.mode-chip:hover {
+  background-color: alpha(@window_fg_color, 0.09);
+}
+
+button.mode-chip:checked {
+  background-color: @accent_soft;
+  color: @accent_color;
+  border-color: alpha(@accent_color, 0.42);
+}
+
+button.mode-chip:disabled {
+  opacity: 0.38;
+}
+
+/* ------------------------------------------------------------ accent swatches */
+button.accent-swatch {
+  min-width: 22px;
+  min-height: 22px;
+  padding: 0;
+  border-radius: 999px;
+  border: 2px solid transparent;
+  box-shadow: none;
+  background-image: none;
+}
+
+button.accent-swatch:checked {
+  border-color: @window_fg_color;
+  box-shadow: 0 0 0 2px @accent_soft;
+}
+
+.swatch-cyan { background-color: #22d3ee; }
+.swatch-violet { background-color: #a78bfa; }
+.swatch-emerald { background-color: #34d399; }
+.swatch-amber { background-color: #fbbf24; }
+.swatch-rose { background-color: #fb7185; }
+.swatch-blue { background-color: #60a5fa; }
+
+/* ------------------------------------------------------------------- misc */
+.about-text {
+  font-size: 13px;
+  opacity: 0.62;
+}
+
+banner {
+  border-bottom: 1px solid alpha(@window_fg_color, 0.06);
+}
+
+separator {
+  background-color: alpha(@window_fg_color, 0.07);
+  min-width: 1px;
+}
