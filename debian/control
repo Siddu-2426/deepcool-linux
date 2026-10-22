@@ -9,11 +9,15 @@ Rules-Requires-Root: no
 Package: deepcool-control
 Architecture: all
 Depends: ${misc:Depends}, ${python3:Depends}, python3-gi, gir1.2-gtk-4.0, gir1.2-adw-1, python3-psutil
+Recommends: openrgb
 Suggests: nvidia-driver
-Description: native control app for DeepCool CH-series digital displays
+Description: control app for DeepCool CH-series displays and case lighting
  A GTK4/libadwaita application that reads local CPU and GPU sensors and
  drives the two three-digit readouts and ten-cell load bars on DeepCool
  CH-series USB displays.
+ .
+ Case and motherboard ARGB can be controlled through OpenRGB from the
+ Lighting page.
  .
  Supported displays include CH360 DIGITAL, CH560 DIGITAL and MORPHEUS.
  .

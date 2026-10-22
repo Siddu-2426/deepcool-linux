@@ -4,7 +4,8 @@
 
 Native GTK4/libadwaita application for DeepCool CH-series digital case
 displays. It reads CPU and GPU sensors locally and drives the two three-digit
-readouts and ten-cell load bars over USB HID.
+readouts and ten-cell load bars over USB HID. Case ARGB can be controlled from
+the Lighting page through OpenRGB.
 
 ![Overview](docs/screenshots/overview.png)
 
@@ -20,7 +21,8 @@ readouts and ten-cell load bars over USB HID.
 | CH560 DIGITAL | `3633:0005` | Protocol-compatible; not hardware-verified |
 | MORPHEUS | `3633:0007` | Protocol-compatible; not hardware-verified |
 
-Only these product IDs are accessed. RGB lighting is not controlled.
+Only these display product IDs are accessed. The display itself does not expose
+RGB; case lighting is controlled separately through OpenRGB on the Lighting page.
 
 ## Install
 
@@ -72,6 +74,23 @@ loginctl enable-linger "$USER"
 
 The panel has no independent power state. It stays lit while the PC is powered
 and the USB cable is connected.
+
+## Case lighting
+
+The **Lighting** page controls case and motherboard ARGB through OpenRGB. This
+is a separate control path from the DeepCool display: the display's USB
+protocol only drives the numeric panel.
+
+The packages recommend OpenRGB. If it is not installed:
+
+```bash
+sudo dnf install openrgb
+sudo apt install openrgb
+```
+
+Choose the controller and zone, pick a color or effect, and press **Apply**. If
+OpenRGB cannot see the controller, sign out and back in so its udev rule is
+applied, and close any other RGB software.
 
 ## Configuration
 

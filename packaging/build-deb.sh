@@ -56,12 +56,16 @@ Priority: optional
 Architecture: all
 Maintainer: DeepCool Linux contributors <noreply@example.com>
 Depends: python3, python3-gi, gir1.2-gtk-4.0, gir1.2-adw-1, python3-psutil
+Recommends: openrgb
 Suggests: nvidia-driver
 Installed-Size: $(du -sk "$STAGE" | cut -f1)
-Description: native control app for DeepCool CH-series digital displays
+Description: control app for DeepCool CH-series displays and case lighting
  A GTK4/libadwaita application that reads local CPU and GPU sensors and
  drives the two three-digit readouts and ten-cell load bars on DeepCool
  CH-series USB displays.
+ .
+ Case and motherboard ARGB can be controlled through OpenRGB from the
+ Lighting page.
  .
  This is an independent educational project and is not affiliated with
  DeepCool.

@@ -4,9 +4,9 @@
 %{!?_udevrulesdir:%global _udevrulesdir %{_prefix}/lib/udev/rules.d}
 
 Name:           deepcool-control
-Version:        1.1.3
+Version:        1.2.0
 Release:        1
-Summary:        Native GTK4 app for DeepCool CH-series digital displays
+Summary:        Native GTK4 app for DeepCool CH-series displays and case lighting
 
 License:        MIT
 Source0:        %{name}-%{version}.tar.gz
@@ -19,12 +19,16 @@ Requires:       libadwaita
 Requires:       python3
 Requires:       python3-gobject
 Requires:       python3-psutil
+Recommends:     openrgb
 
 %description
 DeepCool Control is a native GTK4/libadwaita app for DeepCool CH-series
 digital case displays. It reads CPU and GPU temperature and utilisation
 locally and drives the two three-digit readouts and ten-cell load bars over
 USB HID.
+
+Case and motherboard ARGB can be controlled through OpenRGB from the
+Lighting page.
 
 Supported displays include CH360 DIGITAL, CH560 DIGITAL and MORPHEUS.
 
@@ -89,6 +93,9 @@ fi
 %{_udevrulesdir}/99-deepcool-digital.rules
 
 %changelog
+* Thu Oct 22 2026 DeepCool Linux contributors - 1.2.0-1
+- Add case and motherboard ARGB control through OpenRGB
+
 * Thu Oct 22 2026 DeepCool Linux contributors - 1.1.3-1
 - Reload display settings changed in the GUI while the background service runs
 

@@ -73,7 +73,7 @@ def _print_devices() -> int:
 def _print_doctor() -> int:
     from .device import discover_devices
     from .sensors import cpu_model_name, list_gpus
-    from . import system
+    from . import lighting, system
 
     print(f"{APP_NAME} {VERSION}")
     print(f"Python: {platform.python_version()}")
@@ -129,6 +129,21 @@ def _print_doctor() -> int:
     print(f"service file: {system.service_path()}")
     print(f"autostart file: {system.autostart_path()}")
     print(f"config file: {_config_path()}")
+    openrgb = lighting.find_binary()
+    print(f"OpenRGB: {openrgb or 'not found'}")
+    if openrgb is not None:
+        try:
+            rgb_devices = lighting.list_devices(openrgb)
+        except lighting.LightingError as exc:
+            print(f"OpenRGB devices: error: {exc}")
+        else:
+            print(f"OpenRGB devices: {len(rgb_devices)}")
+            for device in rgb_devices:
+                zones = ", ".join(device.zones) or "-"
+                print(
+                    f"  [{device.index}] {device.name} "
+                    f"zones={zones} modes={len(device.modes)}"
+                )
     print()
     if not any(info.supported and os.access(info.path, os.W_OK) for info in devices):
         print("No writable supported display found. Install the udev rule using the app.")

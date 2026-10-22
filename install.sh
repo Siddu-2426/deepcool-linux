@@ -127,6 +127,9 @@ echo
 echo "DeepCool Control is installed."
 echo "  Launch: $BIN_DIR/deepcool-control"
 echo "  Diagnose: $BIN_DIR/deepcool-control --doctor"
+if ! command -v openrgb >/dev/null 2>&1; then
+  echo "  Note: OpenRGB was not found. Case lighting stays disabled until it is installed."
+fi
 case ":$PATH:" in
   *":$BIN_DIR:"*) ;;
   *) echo "  Note: add $BIN_DIR to PATH to launch it by name." ;;

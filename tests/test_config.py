@@ -21,6 +21,10 @@ class ConfigTests(unittest.TestCase):
         self.assertFalse(config.fahrenheit)
         self.assertEqual(config.interval_ms, 1000)
         self.assertEqual(config.accent, "cyan")
+        self.assertEqual(config.lighting_device, "")
+        self.assertEqual(config.lighting_color, "#22D3EE")
+        self.assertEqual(config.lighting_mode, "Direct")
+        self.assertEqual(config.lighting_brightness, 100)
 
     def test_invalid_values_are_repaired(self) -> None:
         config = Config(
@@ -30,6 +34,9 @@ class ConfigTests(unittest.TestCase):
             auto_cycle_s=9999,
             accent="chartreuse",
             color_scheme="sepia",
+            lighting_color="not-a-color",
+            lighting_mode="",
+            lighting_brightness=999,
         ).validate()
         self.assertEqual(config.primary, "cpu_temp")
         self.assertEqual(config.secondary, "gpu_temp")
@@ -37,6 +44,9 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.auto_cycle_s, 120)
         self.assertEqual(config.accent, "cyan")
         self.assertEqual(config.color_scheme, "system")
+        self.assertEqual(config.lighting_color, "#22D3EE")
+        self.assertEqual(config.lighting_mode, "Direct")
+        self.assertEqual(config.lighting_brightness, 100)
 
     def test_clamps_high_values(self) -> None:
         config = Config(interval_ms=99999, auto_cycle_s=1).validate()
@@ -64,17 +74,28 @@ class ConfigTests(unittest.TestCase):
                 fahrenheit=True,
                 interval_ms=750,
                 accent="emerald",
+                lighting_device="MSI Mystic Light",
+                lighting_zone="JRAINBOW1",
+                lighting_color="#FF8800",
+                lighting_mode="Static",
+                lighting_brightness=42,
             )
             config.save(path)
             self.assertTrue(path.exists())
             raw = json.loads(path.read_text(encoding="utf-8"))
             self.assertEqual(raw["accent"], "emerald")
+            self.assertEqual(raw["lighting_color"], "#FF8800")
             loaded = Config.load(path)
             self.assertEqual(loaded.primary, "auto")
             self.assertEqual(loaded.secondary, "gpu_usage")
             self.assertTrue(loaded.fahrenheit)
             self.assertEqual(loaded.interval_ms, 750)
             self.assertEqual(loaded.accent, "emerald")
+            self.assertEqual(loaded.lighting_device, "MSI Mystic Light")
+            self.assertEqual(loaded.lighting_zone, "JRAINBOW1")
+            self.assertEqual(loaded.lighting_color, "#FF8800")
+            self.assertEqual(loaded.lighting_mode, "Static")
+            self.assertEqual(loaded.lighting_brightness, 42)
 
     def test_broken_file_falls_back_to_defaults(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

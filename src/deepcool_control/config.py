@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import tempfile
 from dataclasses import asdict, dataclass, fields
 from pathlib import Path
@@ -11,7 +12,9 @@ from typing import Any
 
 APP_ID = "io.github.deepcool.Control"
 APP_NAME = "DeepCool Control"
-VERSION = "1.1.3"
+VERSION = "1.2.0"
+LIGHTING_COLOR_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
+DEFAULT_LIGHTING_COLOR = "#22D3EE"
 
 ACCENTS: dict[str, tuple[str, str]] = {
     # name: (primary, soft background tint)
@@ -47,6 +50,11 @@ class Config:
     autostart: bool = False
     service: bool = False
     color_scheme: str = "system"
+    lighting_device: str = ""
+    lighting_zone: str = ""
+    lighting_color: str = DEFAULT_LIGHTING_COLOR
+    lighting_mode: str = "Direct"
+    lighting_brightness: int = 100
 
     def validate(self) -> "Config":
         if self.primary not in ("cpu_temp", "cpu_usage", "auto"):
@@ -59,6 +67,20 @@ class Config:
             self.accent = "cyan"
         if self.color_scheme not in ("system", "light", "dark"):
             self.color_scheme = "system"
+        self.lighting_device = str(self.lighting_device or "").strip()
+        self.lighting_zone = str(self.lighting_zone or "").strip()
+        if not isinstance(self.lighting_color, str) or not LIGHTING_COLOR_RE.fullmatch(
+            self.lighting_color
+        ):
+            self.lighting_color = DEFAULT_LIGHTING_COLOR
+        else:
+            self.lighting_color = self.lighting_color.upper()
+        self.lighting_mode = str(self.lighting_mode or "Direct").strip() or "Direct"
+        try:
+            self.lighting_brightness = int(self.lighting_brightness)
+        except (TypeError, ValueError):
+            self.lighting_brightness = 100
+        self.lighting_brightness = max(0, min(100, self.lighting_brightness))
         return self
 
     @property

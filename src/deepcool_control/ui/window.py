@@ -8,16 +8,19 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, Gio, Gtk, Pango  # noqa: E402
 
+from .. import lighting  # noqa: E402
 from ..config import APP_NAME, VERSION  # noqa: E402
 from ..controller import Controller  # noqa: E402
 from .dashboard import DashboardPage  # noqa: E402
 from .display_page import DisplayPage  # noqa: E402
+from .lighting_page import LightingPage  # noqa: E402
 from .sensors_page import SensorsPage  # noqa: E402
 from .settings_page import SettingsPage  # noqa: E402
 
 PAGES = (
     ("dashboard", "Overview", "view-grid-symbolic"),
     ("display", "Display", "video-display-symbolic"),
+    ("lighting", "Lighting", "preferences-color-symbolic"),
     ("sensors", "Sensors", "applications-utilities-symbolic"),
     ("settings", "Settings", "emblem-system-symbolic"),
 )
@@ -74,7 +77,7 @@ class MainWindow(Adw.ApplicationWindow):
 
         self._window_title = Adw.WindowTitle(
             title=APP_NAME,
-            subtitle="CH-series display control",
+            subtitle="Display and case lighting",
         )
         header.set_title_widget(self._window_title)
 
@@ -93,6 +96,7 @@ class MainWindow(Adw.ApplicationWindow):
 
         menu = Gio.Menu()
         menu.append("Send reading now", "win.send-now")
+        menu.append("Lighting controls", "win.show-lighting")
         menu.append("Grant device access", "win.grant-access")
         menu.append("About DeepCool Control", "app.about")
         menu.append("Quit", "app.quit")
@@ -223,6 +227,7 @@ class MainWindow(Adw.ApplicationWindow):
         self._dashboard = DashboardPage(self.controller, self)
         self._stack.add_named(self._dashboard, "dashboard")
         self._stack.add_named(DisplayPage(self.controller, self), "display")
+        self._stack.add_named(LightingPage(self.controller, self), "lighting")
         self._stack.add_named(SensorsPage(self.controller, self), "sensors")
         self._stack.add_named(SettingsPage(self.controller, self), "settings")
         self._stack.connect("notify::visible-child-name", self._on_page_changed)
@@ -276,6 +281,7 @@ class MainWindow(Adw.ApplicationWindow):
         actions = {
             "show-overview": lambda: self.show_page("dashboard"),
             "show-display": lambda: self.show_page("display"),
+            "show-lighting": lambda: self.show_page("lighting"),
             "show-sensors": lambda: self.show_page("sensors"),
             "show-settings": lambda: self.show_page("settings"),
             "send-now": self._send_now,
@@ -292,6 +298,7 @@ class MainWindow(Adw.ApplicationWindow):
             app.set_accels_for_action("win.show-display", ["<Control>2"])
             app.set_accels_for_action("win.show-sensors", ["<Control>3"])
             app.set_accels_for_action("win.show-settings", ["<Control>4", "<Control>comma"])
+            app.set_accels_for_action("win.show-lighting", ["<Control>5"])
             app.set_accels_for_action("win.send-now", ["<Control>r"])
             app.set_accels_for_action("app.quit", ["<Control>q"])
 
@@ -409,8 +416,8 @@ class MainWindow(Adw.ApplicationWindow):
         dialog.set_comments(
             "A native GTK4 companion for DeepCool CH-series digital displays. "
             "Reads processor and graphics sensors locally and mirrors them to the "
-            "case display over USB HID. Independent educational project, not "
-            "affiliated with DeepCool."
+            "case display over USB HID. Case ARGB can be controlled through "
+            "OpenRGB. Independent educational project, not affiliated with DeepCool."
         )
         dialog.set_license_type(Gtk.License.MIT_X11)
         dialog.set_copyright("© 2026 DeepCool Control contributors")
@@ -420,6 +427,7 @@ class MainWindow(Adw.ApplicationWindow):
             f"Serial: {self.controller.device_serial or '-'}\n"
             f"Connected: {self.controller.connected}\n"
             f"Writable: {self.controller.writable}\n"
+            f"OpenRGB: {lighting.find_binary() or 'not found'}\n"
             f"CPU: {self.controller.cpu_model}\n"
             f"GPU: {self.controller.gpu_name}"
         )
