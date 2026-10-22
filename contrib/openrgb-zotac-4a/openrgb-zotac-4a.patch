@@ -1,0 +1,262 @@
+diff --git a/Controllers/Zotac4AGPUController/RGBController_Zotac4AGPU.cpp b/Controllers/Zotac4AGPUController/RGBController_Zotac4AGPU.cpp
+index b20eeee..df8bc18 100644
+--- a/Controllers/Zotac4AGPUController/RGBController_Zotac4AGPU.cpp
++++ b/Controllers/Zotac4AGPUController/RGBController_Zotac4AGPU.cpp
+@@ -10,6 +10,7 @@
+ \*---------------------------------------------------------*/
+ 
+ #include "RGBController_Zotac4AGPU.h"
++#include "LogManager.h"
+ 
+ /**------------------------------------------------------------------*\
+     @name ZOTAC 30/40 series GPU
+@@ -71,6 +72,13 @@ RGBController_Zotac4AGPU::RGBController_Zotac4AGPU(Zotac4AGPUController* control
+     location    = controller->GetDeviceLocation();
+     type        = DEVICE_TYPE_GPU;
+ 
++    /*-----------------------------------------------------*\
++    | The GPU stores its effect in flash.  Do not let the   |
++    | profile manager replay a stale saved mode over the    |
++    | current firmware state during detection.              |
++    \*-----------------------------------------------------*/
++    flags       |= CONTROLLER_FLAG_NO_PROFILE_LOAD;
++
+     mode STATIC;
+     STATIC.name       = "Static";
+     STATIC.value      = ZOTAC_4A_GPU_MODE_STATIC;
+@@ -209,6 +217,7 @@ void RGBController_Zotac4AGPU::DeviceUpdateMode()
+     zoneConfig.color = modes[active_mode].colors.size() >= 1 ? modes[active_mode].colors[0] : ToRGBColor(0, 0, 0);
+     zoneConfig.speed = modes[active_mode].speed;
+     zoneConfig.on_time = modes[active_mode].brightness;
++    LOG_TRACE("[ZOTAC] DeviceUpdateMode active=%d mode=%02X color=%06X", active_mode, zoneConfig.mode, zoneConfig.color);
+     controller->SetMode(zoneConfig);
+ 
+     lastupdatetime = std::chrono::steady_clock::now();
+@@ -228,6 +237,8 @@ void RGBController_Zotac4AGPU::SetupInitialValues()
+         return;
+     }
+ 
++    LOG_DEBUG("ZOTAC 4A status: on=%d mode=0x%02X color=%06X speed=%d on_time=%d", on, zoneConfig.mode, zoneConfig.color, zoneConfig.speed, zoneConfig.on_time);
++
+     for(unsigned int i = 0; i < modes.size(); ++i)
+     {
+         if(zoneConfig.mode != modes[i].value)
+diff --git a/Controllers/Zotac4AGPUController/Zotac4AGPUController.cpp b/Controllers/Zotac4AGPUController/Zotac4AGPUController.cpp
+index 85f2862..1f76926 100644
+--- a/Controllers/Zotac4AGPUController/Zotac4AGPUController.cpp
++++ b/Controllers/Zotac4AGPUController/Zotac4AGPUController.cpp
+@@ -11,12 +11,26 @@
+ 
+ #include "Zotac4AGPUController.h"
+ #include "LogManager.h"
++#include <cstdlib>
+ 
+ Zotac4AGPUController::Zotac4AGPUController(i2c_smbus_interface* bus, u8 dev, std::string detectedversion)
+ {
+     this->bus = bus;
+     this->dev = dev;
+     version = detectedversion;
++
++    /*-----------------------------------------------------*\
++    | Preset 8 is the custom colour slot on the cards the   |
++    | upstream driver was tested with.  The 4060 Ti Twin    |
++    | Edge (N702E-2001) uses slot 0 instead; slot 8 leaves  |
++    | the LED off in Static mode.                           |
++    \-----------------------------------------------------*/
++    preset = 0x08;
++    if(version == "N702E-2001")
++    {
++        preset = 0x00;
++    }
++
+     if(
+         (version != "N702E-1002") &&
+         (version != "N702E-2001") &&
+@@ -74,6 +88,13 @@ bool Zotac4AGPUController::SendCommand(bool on, bool reset, Zotac4AGPUZone zoneC
+         break;
+     }
+ 
++    u8 send_preset = preset;
++    const char* preset_env = getenv("ZOTAC_4A_PRESET");
++    if(preset_env != nullptr)
++    {
++        send_preset = (u8)strtoul(preset_env, nullptr, 0);
++    }
++
+     u8 data_pkt[ZOTAC_4A_GPU_RGB_CONTROL_LENGTH] =
+         {
+             reset ? (u8)0x01 : (u8)0x00,
+@@ -84,10 +105,12 @@ bool Zotac4AGPUController::SendCommand(bool on, bool reset, Zotac4AGPUZone zoneC
+             (u8)RGBGetBValue(zoneConfig.color),
+             (u8)on_time,
+             (u8)off_time,
+-            (u8)0x08, // preset index, 8 is custom
++            send_preset,
+             (u8)0x00  // the rest is apparently always 0
+         };
+ 
++    LOG_TRACE("ZOTAC 4A write: reset=%d on=%d mode=%02X color=%06X on_time=%d off_time=%d preset=%d", data_pkt[0], data_pkt[1], data_pkt[2], zoneConfig.color, data_pkt[6], data_pkt[7], data_pkt[8]);
++
+     s32 res = bus->i2c_smbus_write_i2c_block_data(dev, ZOTAC_4A_GPU_REG_RGB, sizeof(data_pkt), data_pkt);
+     if(res < 0)
+     {
+diff --git a/Controllers/Zotac4AGPUController/Zotac4AGPUController.h b/Controllers/Zotac4AGPUController/Zotac4AGPUController.h
+index 57727ba..8c0ffdf 100644
+--- a/Controllers/Zotac4AGPUController/Zotac4AGPUController.h
++++ b/Controllers/Zotac4AGPUController/Zotac4AGPUController.h
+@@ -90,5 +90,6 @@ private:
+ 
+     i2c_smbus_interface* bus;
+     u8                   dev;
++    u8                   preset;
+     std::string          version;
+ };
+diff --git a/Controllers/Zotac4AGPUController/Zotac4AGPUControllerDetect.cpp b/Controllers/Zotac4AGPUController/Zotac4AGPUControllerDetect.cpp
+index 0113bab..d818ceb 100644
+--- a/Controllers/Zotac4AGPUController/Zotac4AGPUControllerDetect.cpp
++++ b/Controllers/Zotac4AGPUController/Zotac4AGPUControllerDetect.cpp
+@@ -45,6 +45,27 @@ DetectedControllers DetectZotac4AGPUControllers(i2c_smbus_interface* bus, u8 i2c
+         return(detected_controllers);
+     }
+ 
++    /*---------------------------------------------------------*\
++    | Reject empty/non-printable IDs.  The fixed-100kHz kernel  |
++    | NVIDIA I2C adapters can return a full block of zeroes on  |
++    | this controller; the RM backend is the one that actually  |
++    | supports the 10kHz transfer and returns a valid ID.       |
++    \---------------------------------------------------------*/
++    bool valid_id = true;
++    for(int id_idx = 0; id_idx < ZOTAC_4A_RGB_ID_LEN; id_idx++)
++    {
++        if((rdata_pkt[id_idx] < 0x20) || (rdata_pkt[id_idx] > 0x7E))
++        {
++            valid_id = false;
++            break;
++        }
++    }
++    if(!valid_id)
++    {
++        bus->i2c_set_max_speed(0);
++        return(detected_controllers);
++    }
++
+     char tempstr[I2C_SMBUS_BLOCK_MAX * 3 + 1];
+     int i;
+     char *p = tempstr;
+@@ -65,6 +86,7 @@ DetectedControllers DetectZotac4AGPUControllers(i2c_smbus_interface* bus, u8 i2c
+ }
+ 
+ REGISTER_I2C_PCI_DETECTOR("ZOTAC GAMING GeForce RTX 4060 Ti Twin Edge 8G",        DetectZotac4AGPUControllers, NVIDIA_VEN, NVIDIA_RTX4060TI_DEV,       ZOTAC_SUB_VEN, ZOTAC_RTX4060TI_8G_TWIN_EDGE_SUB_DEV,  0x4A);
++REGISTER_I2C_PCI_DETECTOR("ZOTAC GAMING GeForce RTX 4060 Ti 8GB Twin Edge (19DA:1747)", DetectZotac4AGPUControllers, NVIDIA_VEN, NVIDIA_RTX4060TI_8G_DEV, ZOTAC_SUB_VEN, ZOTAC_RTX4060TI_8G_TWIN_EDGE_1747_SUB_DEV, 0x4A);
+ REGISTER_I2C_PCI_DETECTOR("ZOTAC GAMING GeForce RTX 4070 Twin Edge",              DetectZotac4AGPUControllers, NVIDIA_VEN, NVIDIA_RTX4070_DEV,         ZOTAC_SUB_VEN, ZOTAC_RTX4070_TWIN_EDGE_SUB_DEV,       0x4A);
+ REGISTER_I2C_PCI_DETECTOR("ZOTAC GAMING GeForce RTX 4070 Super Trinity/Twin Edge",DetectZotac4AGPUControllers, NVIDIA_VEN, NVIDIA_RTX4070S_DEV,        ZOTAC_SUB_VEN, ZOTAC_RTX4070S_TRINITY_SUB_DEV,      0x4A);
+ REGISTER_I2C_PCI_DETECTOR("ZOTAC GAMING GeForce RTX 4070 Ti Super Trinity",       DetectZotac4AGPUControllers, NVIDIA_VEN, NVIDIA_RTX4070TIS_DEV,      ZOTAC_SUB_VEN, ZOTAC_RTX4070TIS_TRINITY_SUB_DEV,      0x4A);
+diff --git a/DetectionManager.cpp b/DetectionManager.cpp
+index bad69ed..a99da2e 100644
+--- a/DetectionManager.cpp
++++ b/DetectionManager.cpp
+@@ -394,14 +394,16 @@ void DetectionManager::RegisterRGBController(RGBController *rgb_controller)
+     rgb_controller->flags |= CONTROLLER_FLAG_LOCAL;
+ 
+     /*-----------------------------------------------------*\
+-    | Load manual configuration for the new controller      |
++    | Load manual configuration and active profile for the  |
++    | new controller, unless the controller keeps its own   |
++    | state in firmware and must not be overwritten during  |
++    | detection.                                            |
+     \*-----------------------------------------------------*/
+-    ResourceManager::get()->GetProfileManager()->LoadControllerConfiguration(rgb_controller);
+-
+-    /*-----------------------------------------------------*\
+-    | Load active profile for the new controller            |
+-    \*-----------------------------------------------------*/
+-    ResourceManager::get()->GetProfileManager()->LoadControllerActiveProfile(rgb_controller);
++    if((rgb_controller->flags & CONTROLLER_FLAG_NO_PROFILE_LOAD) == 0)
++    {
++        ResourceManager::get()->GetProfileManager()->LoadControllerConfiguration(rgb_controller);
++        ResourceManager::get()->GetProfileManager()->LoadControllerActiveProfile(rgb_controller);
++    }
+ 
+     /*-----------------------------------------------------*\
+     | Add the new controller to the list                    |
+@@ -481,6 +483,11 @@ std::string DetectionManager::GetDetectionString()
+ 
+ void DetectionManager::WaitForDetection()
+ {
++    /*-----------------------------------------------------*\
++    | Give the background detection coroutine a chance to   |
++    | start and take the mutex before the caller checks it. |
++    \-----------------------------------------------------*/
++    std::this_thread::sleep_for(300ms);
+     DetectDevicesMutex.lock();
+     DetectDevicesMutex.unlock();
+ }
+diff --git a/RGBController/RGBController.cpp b/RGBController/RGBController.cpp
+index eebd4f1..11b3a7e 100644
+--- a/RGBController/RGBController.cpp
++++ b/RGBController/RGBController.cpp
+@@ -86,6 +86,8 @@ RGBController::RGBController()
+     /*-----------------------------------------------------*\
+     | Initialize device thread                              |
+     \*-----------------------------------------------------*/
++    CallFlag_UpdateLEDs = false;
++    CallFlag_UpdateMode = false;
+     DeviceThreadRunning = true;
+     DeviceCallThread    = new std::thread(&RGBController::DeviceCallThreadFunction, this);
+ }
+@@ -1442,6 +1444,7 @@ int RGBController::GetActiveMode()
+ 
+ void RGBController::SetActiveMode(int mode)
+ {
++    LOG_TRACE("[RGBController] SetActiveMode(%d) for %s", mode, name.c_str());
+     /*-----------------------------------------------------*\
+     | Ensure new active mode is within range                |
+     \*-----------------------------------------------------*/
+@@ -1919,6 +1922,7 @@ void RGBController::UpdateSingleLED(int led)
+ 
+ void RGBController::UpdateMode()
+ {
++    LOG_TRACE("[RGBController] UpdateMode for %s", name.c_str());
+     CallFlag_UpdateMode = true;
+ 
+     SignalUpdate(RGBCONTROLLER_UPDATE_REASON_UPDATEMODE);
+@@ -2212,6 +2216,7 @@ void RGBController::SetupColors()
+ 
+ void RGBController::UpdateLEDsInternal()
+ {
++    LOG_TRACE("[RGBController] UpdateLEDsInternal for %s", name.c_str());
+     CallFlag_UpdateLEDs = true;
+ }
+ 
+diff --git a/RGBController/RGBControllerInterface.h b/RGBController/RGBControllerInterface.h
+index e698ee9..d9bdfc8 100644
+--- a/RGBController/RGBControllerInterface.h
++++ b/RGBController/RGBControllerInterface.h
+@@ -216,6 +216,7 @@ enum
+     CONTROLLER_FLAG_REMOTE                                  = (1 << 1), /* Device is on a remote instance                   */
+     CONTROLLER_FLAG_VIRTUAL                                 = (1 << 2), /* Device is a virtual device                       */
+     CONTROLLER_FLAG_HIDDEN                                  = (1 << 3), /* Device is hidden                                 */
++    CONTROLLER_FLAG_NO_PROFILE_LOAD                         = (1 << 4), /* Do not restore saved profile state on detection  */
+ 
+     CONTROLLER_FLAG_RESET_BEFORE_UPDATE                     = (1 << 8), /* Device resets update flag before                 */
+                                                                         /* calling update function                          */
+diff --git a/pci_ids/pci_ids.h b/pci_ids/pci_ids.h
+index f25a896..b72df2f 100644
+--- a/pci_ids/pci_ids.h
++++ b/pci_ids/pci_ids.h
+@@ -112,6 +112,7 @@
+ #define NVIDIA_RTX3090TI_DEV                                    0x2203
+ #define NVIDIA_RTX4060_DEV                                      0x2882
+ #define NVIDIA_RTX4060TI_DEV                                    0x2803
++#define NVIDIA_RTX4060TI_8G_DEV                                 0x2788
+ #define NVIDIA_RTX4060TI_16G_DEV                                0x2805
+ #define NVIDIA_RTX4070_DEV                                      0x2786
+ #define NVIDIA_RTX4070_AD103_DEV                                0x2709
+@@ -1011,6 +1012,7 @@
+ #define ZOTAC_RTX5080_AMP_EXTREME_SUB_DEV                       0x1762
+ #define ZOTAC_RTX5090_SOLID_OC_SUB_DEV                          0x1761
+ #define ZOTAC_RTX4060TI_8G_TWIN_EDGE_SUB_DEV                   0x2717
++#define ZOTAC_RTX4060TI_8G_TWIN_EDGE_1747_SUB_DEV               0x1747
+ #define ZOTAC_RTX4070_TWIN_EDGE_SUB_DEV                         0x2714
+ #define ZOTAC_RTX4070S_TRINITY_SUB_DEV                          0x5710 // Twin Edge might have the same ID
+ #define ZOTAC_RTX4070TIS_TRINITY_SUB_DEV                        0x4710 // OC White has the same ID

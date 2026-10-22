@@ -127,8 +127,42 @@ The package installs the MSI hidraw permission rule
 (`99-deepcool-msi-mystic-light.rules`) so the app can open `1462:7d77` without
 root.
 
+### ZOTAC RTX 4060 Ti GPU (patched OpenRGB)
+
+The reference GPU is a ZOTAC GeForce RTX 4060 Ti 8GB Twin Edge:
+
+| Property | Value |
+|---|---|
+| PCI device | `10de:2788` |
+| PCI subsystem | `19da:1747` |
+| RGB controller | `N702E-2001`, protocol `4A`, address `0x4A` |
+| Interface | NVIDIA Resource Manager I2C, 10 kHz |
+
+The GPU is independent from the MSI `JARGB_V2_2` cabinet chain. The stock
+OpenRGB package does not detect this card. `contrib/openrgb-zotac-4a/`
+contains a patch for the unmerged NVIDIA RM I2C backend ([OpenRGB MR
+!3380](https://gitlab.com/CalcProgrammer1/OpenRGB/-/merge_requests/3380)) and a
+Podman build script:
+
+```bash
+cd contrib/openrgb-zotac-4a
+./build.sh
+```
+
+The script installs the patched binary at `~/.local/bin/openrgb` and keeps any
+previous binary as a timestamped backup. `~/.local/bin` must come before
+`/usr/bin` in `PATH`; verify with `command -v openrgb`. The Lighting page then
+shows a separate **ZOTAC GPU** controller. The patch uses preset index `0` for
+`N702E-2001`, validates the controller ID to suppress the kernel-I2C duplicate,
+and does not replay a saved profile over the firmware state during detection.
+
+The GPU stores the selected effect in its own firmware, so it keeps running
+after OpenRGB or DeepCool Control exits. The DeepCool background service is not
+required for the GPU and does not own it.
+
 Other controllers are controlled through OpenRGB. The packages recommend it;
-install it if you have a non-MSI controller:
+install it if you have a non-MSI controller. For the reference ZOTAC GPU, use
+the patched build above instead of the distribution package:
 
 ```bash
 sudo dnf install openrgb
