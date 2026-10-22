@@ -19,8 +19,16 @@ SERVICE_NAME = "deepcool-control.service"
 AUTOSTART_NAME = "deepcool-control.desktop"
 
 UDEV_RULE = """# DeepCool CH-series digital displays (CH360/CH560/MORPHEUS)
-# TAG+="uaccess" grants the locally logged-in user access to the hidraw node.
-SUBSYSTEM=="hidraw", ATTRS{idVendor}=="3633", TAG+="uaccess", MODE="0660"
+# GROUP="wheel" is a persistent fallback for the lingering user service that
+# starts before login.  TAG+="uaccess" still grants the active desktop user
+# access on systems where that user is not in wheel.
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="3633", TAG+="uaccess", GROUP="wheel", MODE="0660"
+"""
+
+MSI_UDEV_RULE = """# MSI Mystic Light motherboards (1462:7d77 on MS-7D77).
+# Persistent group access lets the lingering user service drive the native
+# per-LED backend before a graphical login session exists.
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1462", ATTRS{idProduct}=="7d77", TAG+="uaccess", GROUP="wheel", MODE="0660"
 """
 
 
@@ -86,7 +94,10 @@ def _write_service() -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     content = f"""[Unit]
 Description=DeepCool Control display daemon
-After=graphical-session.target
+# Do not wait for graphical-session.target.  With lingering enabled the user
+# manager starts at boot, so the display and cabinet lighting are active
+# before the login prompt.  The MSI panel is host-streamed and cannot be
+# driven earlier than the operating system and this service.
 # Keep retrying forever if the panel is busy or temporarily unavailable.
 StartLimitIntervalSec=0
 
@@ -98,6 +109,10 @@ RestartSec=3
 # Give the daemon a moment to release the hidraw lock on logout.
 TimeoutStopSec=5
 Environment=PYTHONUNBUFFERED=1
+# The patched ZOTAC OpenRGB build lives in ~/.local/bin and must be preferred
+# over the distribution package.  systemd user services do not inherit the
+# desktop shell's PATH.
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 
 [Install]
 WantedBy=default.target
@@ -174,59 +189,81 @@ def msi_udev_rule_installed() -> bool:
 
 
 def install_udev_rule(force: bool = False) -> tuple[bool, str]:
-    rule_exists = udev_rule_installed()
-    if rule_exists and not force:
-        return True, "Permission rule is already installed"
+    """Install persistent udev permissions for the display and MSI RGB.
+
+    ``TAG+="uaccess"`` alone only grants access after a desktop login.  The
+    background service starts from the lingering user manager during boot, so
+    both rules also assign the devices to the ``wheel`` group.  That makes the
+    very first daemon start at boot able to drive the panel and cabinet ARGB.
+    """
+
+    rules = ((RULE_PATH, UDEV_RULE), (MSI_RULE_PATH, MSI_UDEV_RULE))
+    existing = [path for path, _content in rules if path.exists()]
+    missing = [
+        (path, content)
+        for path, content in rules
+        if force or not path.exists()
+    ]
+    if not missing:
+        return True, "Permission rules are already installed"
 
     pkexec = shutil.which("pkexec")
     if not pkexec:
-        if rule_exists:
+        if existing:
             return (
                 False,
-                "The rule is installed but not active. Run: sudo udevadm control --reload-rules "
+                "The rules are installed but not active. Run: sudo udevadm control --reload-rules "
                 "&& sudo udevadm trigger --action=add --subsystem-match=hidraw",
             )
         return (
             False,
-            "pkexec was not found. Run: sudo install -m 0644 data/99-deepcool-digital.rules "
-            f"/etc/udev/rules.d/{RULE_NAME}",
+            "pkexec was not found. Install data/99-deepcool-digital.rules and "
+            "data/99-deepcool-msi-mystic-light.rules in /etc/udev/rules.d, then "
+            "run sudo udevadm control --reload-rules && sudo udevadm trigger "
+            "--action=add --subsystem-match=hidraw",
         )
 
-    with tempfile.NamedTemporaryFile("w", suffix=".rules", delete=False, encoding="utf-8") as handle:
-        handle.write(UDEV_RULE)
-        temp_path = handle.name
-
-    quoted = shlex.quote(temp_path)
-    destination = shlex.quote(str(RULE_PATH))
+    temp_paths: list[str] = []
     parts: list[str] = []
-    if not rule_exists:
-        parts.append(f"install -m 0644 {quoted} {destination}")
-    parts.append("udevadm control --reload-rules")
-    # A synthetic "add" event is required for the uaccess ACL to be applied
-    # to an already-present hidraw node.
-    parts.append("udevadm trigger --action=add --subsystem-match=hidraw")
-    command = " && ".join(parts)
     try:
-        result = subprocess.run(
-            [pkexec, "sh", "-c", command],
-            capture_output=True,
-            text=True,
-            timeout=120,
-            check=False,
-        )
-    except (OSError, subprocess.SubprocessError) as exc:
-        return False, f"Could not run pkexec: {exc}"
-    finally:
+        for destination_path, content in missing:
+            with tempfile.NamedTemporaryFile(
+                "w", suffix=".rules", delete=False, encoding="utf-8"
+            ) as handle:
+                handle.write(content)
+                temp_paths.append(handle.name)
+            parts.append(
+                "install -m 0644 "
+                f"{shlex.quote(temp_paths[-1])} "
+                f"{shlex.quote(str(destination_path))}"
+            )
+        parts.append("udevadm control --reload-rules")
+        # A synthetic "add" event is required for group ownership and the
+        # uaccess ACL to be applied to already-present hidraw nodes.
+        parts.append("udevadm trigger --action=add --subsystem-match=hidraw")
+        command = " && ".join(parts)
         try:
-            os.unlink(temp_path)
-        except OSError:
-            pass
+            result = subprocess.run(
+                [pkexec, "sh", "-c", command],
+                capture_output=True,
+                text=True,
+                timeout=120,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            return False, f"Could not run pkexec: {exc}"
+    finally:
+        for temp_path in temp_paths:
+            try:
+                os.unlink(temp_path)
+            except OSError:
+                pass
 
     if result.returncode != 0:
         message = result.stderr.strip() or result.stdout.strip()
         if result.returncode in (126, 127):
             message = message or "Authentication was cancelled"
-        return False, message or "Installing the permission rule failed"
-    if rule_exists:
-        return True, "Permissions refreshed. Reconnect the display if it is still busy."
-    return True, "Permissions installed. Reconnect the display if it is still busy."
+        return False, message or "Installing the permission rules failed"
+    if existing:
+        return True, "Permissions refreshed. Reconnect the device if it is still busy."
+    return True, "Permissions installed. Reconnect the device if it is still busy."

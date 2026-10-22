@@ -162,6 +162,37 @@ class BackgroundLightingTests(unittest.TestCase):
         self.assertTrue(state["active"])
         self.assertEqual(state["key"], daemon._native_lighting_key(config))
 
+    def test_gpu_key_is_independent_from_cabinet_settings(self) -> None:
+        config = self._config(
+            gpu_lighting_enabled=True,
+            gpu_lighting_device="ZOTAC GPU",
+            gpu_lighting_mode="Breathing",
+            gpu_lighting_color="#613583",
+            gpu_lighting_brightness=100,
+        )
+        self.assertEqual(
+            daemon._gpu_lighting_key(config),
+            ("ZOTAC GPU", "Breathing", "#613583", 100),
+        )
+        # The cabinet key still points at the native MSI device.
+        self.assertEqual(
+            daemon._native_lighting_key(config),
+            ("JRAINBOW2", (255, 128, 0), "meteor", 40),
+        )
+
+    def test_gpu_key_skips_disabled_or_incomplete_state(self) -> None:
+        self.assertIsNone(daemon._gpu_lighting_key(self._config()))
+        self.assertIsNone(
+            daemon._gpu_lighting_key(
+                self._config(
+                    gpu_lighting_enabled=True,
+                    gpu_lighting_device="ZOTAC GPU",
+                    gpu_lighting_mode="Breathing",
+                    gpu_lighting_color="",
+                )
+            )
+        )
+
     def test_background_service_off_writes_black(self) -> None:
         state: dict[str, object] = {"key": None, "active": False}
         config = self._config(

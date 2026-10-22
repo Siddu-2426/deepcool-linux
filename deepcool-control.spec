@@ -4,7 +4,7 @@
 %{!?_udevrulesdir:%global _udevrulesdir %{_prefix}/lib/udev/rules.d}
 
 Name:           deepcool-control
-Version:        1.2.3
+Version:        1.2.4
 Release:        1
 Summary:        Native GTK4 app for DeepCool CH-series displays and case lighting
 
@@ -97,6 +97,10 @@ fi
 %{_udevrulesdir}/99-deepcool-msi-mystic-light.rules
 
 %changelog
+* Fri Oct 23 2026 DeepCool Linux contributors - 1.2.4-1
+- Start the display and native MSI lighting during boot, before login
+- Reapply the saved GPU lighting effect at startup
+
 * Thu Oct 22 2026 DeepCool Linux contributors - 1.2.3-1
 - Keep the display and native MSI lighting running through the background service
 

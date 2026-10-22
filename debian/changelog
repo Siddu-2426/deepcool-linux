@@ -1,3 +1,12 @@
+deepcool-control (1.2.4) unstable; urgency=medium
+
+  * Start the display and native MSI lighting during boot, before login.
+  * Grant persistent wheel-group access so the lingering service can open
+    the hidraw devices without waiting for a graphical login.
+  * Reapply the saved ZOTAC GPU effect at startup without touching MSI.
+
+ -- DeepCool Linux contributors <noreply@example.com>  Fri, 23 Oct 2026 00:00:00 +0000
+
 deepcool-control (1.2.3) unstable; urgency=medium
 
   * Let the background service own the display and native MSI lighting.

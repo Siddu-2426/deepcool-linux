@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import os
 import sys
 import tempfile
 import unittest
@@ -13,8 +15,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from deepcool_control.lighting import (  # noqa: E402
     LightingDevice,
     LightingError,
+    ZOTAC_DETECTOR_NAMES,
     apply_color,
+    apply_gpu_preset,
     build_apply_command,
+    ensure_gpu_only_config,
     is_mystic_light,
     list_devices,
     normalize_color,
@@ -144,6 +149,112 @@ class CommandTests(unittest.TestCase):
             binary="openrgb",
         )
         self.assertEqual(command[-1], "100")
+
+
+class GpuConfigTests(unittest.TestCase):
+    def _source_config(self, count: int) -> dict:
+        return {
+            "Detectors": {
+                "detectors": {
+                    **{f"Detector {index}": True for index in range(count)},
+                    "MSI Mystic Light MS_7D77": True,
+                    "ZOTAC GAMING GeForce RTX 4060 Ti 8GB Twin Edge (19DA:1747)": True,
+                }
+            },
+            "Other": {"preserved": True},
+        }
+
+    def test_gpu_only_config_disables_every_other_detector(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            config_home = Path(directory) / "config"
+            cache_home = Path(directory) / "cache"
+            source = config_home / "OpenRGB"
+            source.mkdir(parents=True)
+            (source / "OpenRGB.json").write_text(
+                json.dumps(self._source_config(120)), encoding="utf-8"
+            )
+            with mock.patch.dict(
+                os.environ,
+                {
+                    "XDG_CONFIG_HOME": str(config_home),
+                    "XDG_CACHE_HOME": str(cache_home),
+                },
+            ):
+                target = ensure_gpu_only_config(binary=None)
+                raw = json.loads((target / "OpenRGB.json").read_text())
+
+        detectors = raw["Detectors"]["detectors"]
+        self.assertFalse(detectors["MSI Mystic Light MS_7D77"])
+        self.assertFalse(detectors["Detector 0"])
+        for name in ZOTAC_DETECTOR_NAMES:
+            self.assertTrue(detectors[name])
+        self.assertEqual(raw["Other"], {"preserved": True})
+
+    def test_gpu_only_config_generates_a_complete_source(self) -> None:
+        generated = {
+            "Detectors": {
+                "detectors": {
+                    "MSI Mystic Light MS_7D77": True,
+                    "Some Other Device": True,
+                }
+            }
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            config_home = Path(directory) / "config"
+            cache_home = Path(directory) / "cache"
+            with (
+                mock.patch.dict(
+                    os.environ,
+                    {
+                        "XDG_CONFIG_HOME": str(config_home),
+                        "XDG_CACHE_HOME": str(cache_home),
+                    },
+                ),
+                mock.patch(
+                    "deepcool_control.lighting._generate_openrgb_config",
+                    return_value=generated,
+                ) as generate,
+            ):
+                target = ensure_gpu_only_config(binary="openrgb")
+                raw = json.loads((target / "OpenRGB.json").read_text())
+
+        generate.assert_called_once()
+        detectors = raw["Detectors"]["detectors"]
+        self.assertFalse(detectors["MSI Mystic Light MS_7D77"])
+        self.assertTrue(
+            detectors["ZOTAC GAMING GeForce RTX 4060 Ti 8GB Twin Edge (19DA:1747)"]
+        )
+
+    def test_apply_gpu_preset_uses_gpu_only_config(self) -> None:
+        completed = mock.Mock(returncode=0, stdout="", stderr="")
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            mock.patch(
+                "deepcool_control.lighting.ensure_gpu_only_config",
+                return_value=Path(directory),
+            ),
+            mock.patch(
+                "deepcool_control.lighting.subprocess.run",
+                return_value=completed,
+            ) as run,
+        ):
+            apply_gpu_preset(
+                "Breathing",
+                "#613583",
+                brightness=80,
+                binary="openrgb",
+                write_log=False,
+            )
+
+        command = run.call_args.args[0]
+        self.assertIn("--config", command)
+        self.assertIn("ZOTAC GPU", command)
+        self.assertIn("--mode", command)
+        self.assertIn("Breathing", command)
+        self.assertIn("--color", command)
+        self.assertIn("613583", command)
+        self.assertIn("--brightness", command)
+        self.assertIn("80", command)
 
 
 class SafetyTests(unittest.TestCase):

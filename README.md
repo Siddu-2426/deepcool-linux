@@ -60,10 +60,44 @@ Both readouts can independently cycle between temperature and usage. Use the
 Display and Sensors pages to choose sources, units, refresh interval, and
 auto-cycle timing.
 
-### Keep the display and lighting running
+### Keep the display and lighting running at boot
 
 Enable **Settings → Background service**. This creates a systemd user unit that
 owns both the CH-series display and the native MSI per-LED lighting animation.
+The unit deliberately does **not** wait for `graphical-session.target`.
+
+Enable lingering once so the user manager, and therefore this service, starts
+during boot instead of waiting for a login:
+
+```bash
+loginctl enable-linger "$USER"
+```
+
+The udev rules assign both hidraw devices to the `wheel` group in addition to
+the login-time `uaccess` ACL. That is the part that lets the boot-time service
+open the display and the MSI controller before the login prompt appears. On a
+system where the desktop user is not in `wheel`, either add them to that group
+or use the app's **Grant access** action and log in before relying on the
+pre-login service.
+
+If the rules were installed before this change, refresh the copies in
+`/etc/udev/rules.d` (they take precedence over the package copies), then
+reload udev:
+
+```bash
+sudo install -m 0644 data/99-deepcool-digital.rules \
+  data/99-deepcool-msi-mystic-light.rules /etc/udev/rules.d/
+sudo udevadm control --reload-rules
+sudo udevadm trigger --action=add --subsystem-match=hidraw
+```
+
+The next boot starts the service from the lingering user manager, before the
+login prompt. Verify with:
+
+```bash
+systemctl --user status deepcool-control
+journalctl --user -u deepcool-control -f
+```
 
 When the service is enabled, closing the window hands both devices to systemd
 and exits the GUI. Breathing, meteor, and the other animated MSI effects keep
@@ -76,19 +110,13 @@ quitting it. The display timer and the native RGB animation stay alive in the
 GUI process; open the app again to show the window. Use **Quit** from the menu
 to stop both when the service is disabled.
 
-```bash
-systemctl --user status deepcool-control
-journalctl --user -u deepcool-control -f
-```
-
-To keep the service running after logout:
-
-```bash
-loginctl enable-linger "$USER"
-```
-
-The panel has no independent power state. It stays lit while the PC is powered
-and the USB cable is connected.
+The panel and the native MSI `JARGB_V2_2` stream are driven from Linux
+userspace. They cannot be active before the kernel has enumerated USB and this
+service has started; on the reference machine that happens a few seconds into
+boot, before the login prompt. The GPU effect is stored in the GPU firmware and
+is visible as soon as the card powers on; the service also reapplies the saved
+effect at startup as a safety net. The panel has no independent power state and
+stays lit while the PC is powered and the USB cable is connected.
 
 ## Case lighting
 
@@ -124,8 +152,9 @@ Native effects: `Static`, `Breathing`, `Flashing`, `Double flashing`, `Meteor`,
 `Color ring`, `Planetary`, `Double meteor`, `Energy`, `Clock`, and `Off`.
 
 The package installs the MSI hidraw permission rule
-(`99-deepcool-msi-mystic-light.rules`) so the app can open `1462:7d77` without
-root.
+(`99-deepcool-msi-mystic-light.rules`) so the app and the boot-time service can
+open `1462:7d77` without root. The rule grants persistent `wheel`-group access
+for the pre-login service and adds the login-time `uaccess` ACL.
 
 ### ZOTAC RTX 4060 Ti GPU (patched OpenRGB)
 
@@ -157,8 +186,14 @@ shows a separate **ZOTAC GPU** controller. The patch uses preset index `0` for
 and does not replay a saved profile over the firmware state during detection.
 
 The GPU stores the selected effect in its own firmware, so it keeps running
-after OpenRGB or DeepCool Control exits. The DeepCool background service is not
-required for the GPU and does not own it.
+after OpenRGB or DeepCool Control exits. The background service does not own the
+GPU and never leaves an OpenRGB process running. It only issues a one-shot
+reapply at startup, after the NVIDIA driver is available, using a generated
+OpenRGB config that disables every detector except the ZOTAC 4A detector. That
+keeps the MSI detector from opening or disturbing `/dev/hidraw3`. The saved GPU
+effect and color are kept in separate `gpu_lighting_*` configuration keys, so
+selecting the GPU in the Lighting page never replaces the cabinet's native MSI
+settings.
 
 Other controllers are controlled through OpenRGB. The packages recommend it;
 install it if you have a non-MSI controller. For the reference ZOTAC GPU, use

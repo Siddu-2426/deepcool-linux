@@ -562,13 +562,36 @@ class LightingPage(Gtk.ScrolledWindow):
         zone_name: str,
         zone_index: int | None,
     ) -> None:
-        self.controller.configure(
-            lighting_device=device.name,
-            lighting_zone=zone_name,
-            lighting_color=color,
-            lighting_mode=mode,
-            lighting_brightness=brightness,
-        )
+        if device.native:
+            self.controller.configure(
+                lighting_device=device.name,
+                lighting_zone=zone_name,
+                lighting_color=color,
+                lighting_mode=mode,
+                lighting_brightness=brightness,
+            )
+        elif (
+            device.name == lighting.ZOTAC_GPU_NAME
+            or "ZOTAC" in device.name.upper()
+        ):
+            # Keep the cabinet's native MSI settings separate.  Selecting the
+            # GPU must never replace lighting_device with a non-native name,
+            # because the daemon would then stop the MSI animation.
+            self.controller.configure(
+                gpu_lighting_enabled=True,
+                gpu_lighting_device=device.name,
+                gpu_lighting_mode=mode,
+                gpu_lighting_color=color,
+                gpu_lighting_brightness=brightness,
+            )
+        else:
+            self.controller.configure(
+                lighting_device=device.name,
+                lighting_zone=zone_name,
+                lighting_color=color,
+                lighting_mode=mode,
+                lighting_brightness=brightness,
+            )
         self._pending_color = color
         self._set_color(color)
         self.color_row.set_subtitle(f"{color} selected. Press Apply to send.")

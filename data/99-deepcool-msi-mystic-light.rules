@@ -1,4 +1,5 @@
 # MSI Mystic Light motherboards (1462:7d77 on MS-7D77).
-# TAG+="uaccess" grants the locally logged-in desktop user access to the
-# vendor HID interface used by the native per-LED backend.
-SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1462", ATTRS{idProduct}=="7d77", TAG+="uaccess", MODE="0660"
+# GROUP="wheel" gives the lingering user service access at boot, before a
+# desktop login exists. TAG+="uaccess" still grants the active desktop user
+# access on systems where that user is not in wheel.
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1462", ATTRS{idProduct}=="7d77", TAG+="uaccess", GROUP="wheel", MODE="0660"

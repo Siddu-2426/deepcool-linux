@@ -12,7 +12,7 @@ from typing import Any
 
 APP_ID = "io.github.deepcool.Control"
 APP_NAME = "DeepCool Control"
-VERSION = "1.2.3"
+VERSION = "1.2.4"
 LIGHTING_COLOR_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
 DEFAULT_LIGHTING_COLOR = "#22D3EE"
 
@@ -56,6 +56,11 @@ class Config:
     lighting_mode: str = "Direct"
     lighting_brightness: int = 35
     lighting_safe_mode: bool = True
+    gpu_lighting_enabled: bool = False
+    gpu_lighting_device: str = ""
+    gpu_lighting_mode: str = ""
+    gpu_lighting_color: str = ""
+    gpu_lighting_brightness: int = 100
 
     def validate(self) -> "Config":
         if self.primary not in ("cpu_temp", "cpu_usage", "auto"):
@@ -89,6 +94,40 @@ class Config:
             # configuration file is edited by hand.
             self.lighting_mode = "Direct"
             self.lighting_brightness = min(50, self.lighting_brightness)
+
+        # GPU lighting is independent from the MSI cabinet chain.  It has its
+        # own settings so selecting the GPU in the app never stops the native
+        # MSI animation.  Safe mode only guards the MSI controller; the ZOTAC
+        # firmware effects are supported and tested.
+        self.gpu_lighting_enabled = bool(self.gpu_lighting_enabled)
+        self.gpu_lighting_device = str(self.gpu_lighting_device or "").strip()
+        self.gpu_lighting_mode = str(self.gpu_lighting_mode or "").strip()
+        if (
+            not isinstance(self.gpu_lighting_color, str)
+            or not self.gpu_lighting_color.strip()
+        ):
+            self.gpu_lighting_color = ""
+        else:
+            color = self.gpu_lighting_color.strip()
+            if not color.startswith("#"):
+                color = f"#{color}"
+            if LIGHTING_COLOR_RE.fullmatch(color):
+                self.gpu_lighting_color = color.upper()
+            else:
+                self.gpu_lighting_color = ""
+        try:
+            self.gpu_lighting_brightness = int(self.gpu_lighting_brightness)
+        except (TypeError, ValueError):
+            self.gpu_lighting_brightness = 100
+        self.gpu_lighting_brightness = max(
+            0, min(100, self.gpu_lighting_brightness)
+        )
+        if not (
+            self.gpu_lighting_device
+            and self.gpu_lighting_mode
+            and self.gpu_lighting_color
+        ):
+            self.gpu_lighting_enabled = False
         return self
 
     @property

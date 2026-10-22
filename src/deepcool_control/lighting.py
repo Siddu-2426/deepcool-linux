@@ -7,11 +7,13 @@ RGB controller it already supports (for example MSI Mystic Light).
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import shlex
 import shutil
 import subprocess
+import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -22,6 +24,11 @@ from . import msi_native
 DEFAULT_COLOR = "#22D3EE"
 DEFAULT_MODE = "Direct"
 SAFE_MAX_BRIGHTNESS = 50
+ZOTAC_GPU_NAME = "ZOTAC GPU"
+ZOTAC_DETECTOR_NAMES = (
+    "ZOTAC GAMING GeForce RTX 4060 Ti 8GB Twin Edge (19DA:1747)",
+    "ZOTAC GAMING GeForce RTX 4060 Ti Twin Edge 8G",
+)
 COLOR_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
 _DEVICE_RE = re.compile(r"^\s*(\d+):\s*(.+?)\s*$")
 _FIELD_RE = re.compile(r"^\s+([A-Za-z][A-Za-z ]*):\s*(.*?)\s*$")
@@ -77,6 +84,195 @@ def find_binary() -> str | None:
 
 def available() -> bool:
     return find_binary() is not None
+
+
+def openrgb_config_dir() -> Path:
+    """Return OpenRGB's per-user configuration directory."""
+
+    base = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
+    return Path(base) / "OpenRGB"
+
+
+def gpu_config_dir() -> Path:
+    """Return the generated GPU-only OpenRGB configuration directory."""
+
+    base = os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache")
+    return Path(base) / "deepcool-control" / "openrgb-gpu"
+
+
+def _generate_openrgb_config(
+    binary: str, timeout: float = 30.0
+) -> dict[str, object] | None:
+    """Ask OpenRGB to write a complete default configuration.
+
+    ``--localconfig`` makes OpenRGB use the current directory.  The generated
+    file contains the name of every registered detector, which lets us disable
+    all of them except the ZOTAC GPU detector.
+    """
+
+    with tempfile.TemporaryDirectory(prefix="deepcool-openrgb-") as directory:
+        try:
+            subprocess.run(
+                [
+                    binary,
+                    "--localconfig",
+                    "--noautoconnect",
+                    "--list-devices",
+                ],
+                cwd=directory,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return None
+        path = Path(directory) / "OpenRGB.json"
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError, TypeError):
+            return None
+    return raw if isinstance(raw, dict) else None
+
+
+def ensure_gpu_only_config(
+    binary: str | None = None, timeout: float = 30.0
+) -> Path:
+    """Create an OpenRGB config that detects only the ZOTAC GPU.
+
+    Reusing the user's OpenRGB config preserves its detector names.  Every
+    detector is disabled and the ZOTAC 4A detector is enabled, so a boot-time
+    GPU update cannot open or disturb the MSI Mystic Light hidraw device.
+    """
+
+    executable = binary or find_binary()
+    raw: dict[str, object] | None = None
+    source = openrgb_config_dir() / "OpenRGB.json"
+    if source.is_file():
+        try:
+            loaded = json.loads(source.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict):
+                raw = loaded
+        except (OSError, ValueError, TypeError):
+            raw = None
+    if raw is not None and executable:
+        # A complete OpenRGB config lists every registered detector.  A short
+        # or hand-written config would leave the MSI detector enabled by
+        # default, so regenerate it in that case.
+        existing_detectors = raw.get("Detectors")
+        existing_names = (
+            existing_detectors.get("detectors", {})
+            if isinstance(existing_detectors, dict)
+            else {}
+        )
+        if not isinstance(existing_names, dict) or len(existing_names) < 100:
+            generated = _generate_openrgb_config(executable, timeout=timeout)
+            if generated is not None:
+                raw = generated
+    if raw is None and executable:
+        raw = _generate_openrgb_config(executable, timeout=timeout)
+    if raw is None:
+        raw = {}
+
+    detectors = raw.get("Detectors")
+    if not isinstance(detectors, dict):
+        detectors = {}
+        raw["Detectors"] = detectors
+    names = detectors.get("detectors")
+    if not isinstance(names, dict):
+        names = {}
+        detectors["detectors"] = names
+
+    for name in list(names):
+        names[name] = False
+    for name in ZOTAC_DETECTOR_NAMES:
+        names[name] = True
+    # Keep any newer ZOTAC 4060 Ti detector name that OpenRGB added itself.
+    for name in list(names):
+        upper = str(name).upper()
+        if "ZOTAC" in upper and "4060 TI" in upper:
+            names[name] = True
+
+    target = gpu_config_dir()
+    target.mkdir(parents=True, exist_ok=True)
+    (target / "OpenRGB.json").write_text(
+        json.dumps(raw, indent=4, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return target
+
+
+def apply_gpu_preset(
+    mode: str,
+    color: str,
+    *,
+    brightness: int | None = None,
+    binary: str | None = None,
+    timeout: float = 30.0,
+    write_log: bool = True,
+    log_file: Path | None = None,
+) -> None:
+    """Apply the saved effect to the ZOTAC GPU only.
+
+    The generated GPU-only config disables the MSI detector, so this is safe
+    to run while the native MSI animation owns ``/dev/hidraw3``.
+    """
+
+    executable = binary or find_binary()
+    if not executable:
+        raise LightingError("OpenRGB is not installed")
+    selected_mode = str(mode or "").strip()
+    if not selected_mode:
+        raise ValueError("GPU lighting mode is empty")
+    normalized = normalize_color(color)
+    config = ensure_gpu_only_config(executable, timeout=timeout)
+    command = [
+        executable,
+        "--config",
+        str(config),
+        "--noautoconnect",
+        "--device",
+        ZOTAC_GPU_NAME,
+        "--mode",
+        selected_mode,
+        "--color",
+        normalized.lstrip("#"),
+    ]
+    if brightness is not None:
+        value = max(0, min(100, int(brightness)))
+        command.extend(["--brightness", str(value)])
+
+    if write_log:
+        record_apply(
+            command,
+            device=LightingDevice(index=0, name=ZOTAC_GPU_NAME, type="GPU"),
+            color=normalized,
+            mode=selected_mode,
+            brightness=brightness,
+            zone_name="GPU Zone",
+            path=log_file,
+        )
+
+    try:
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+    except FileNotFoundError as exc:
+        raise LightingError("OpenRGB is not installed") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise LightingError("OpenRGB did not respond in time") from exc
+    except OSError as exc:
+        raise LightingError(f"Could not start OpenRGB: {exc}") from exc
+
+    if result.returncode != 0:
+        detail = _clean_output(result.stdout, result.stderr)
+        raise LightingError(
+            detail or f"OpenRGB exited with status {result.returncode}"
+        )
 
 
 def is_mystic_light(device: LightingDevice) -> bool:

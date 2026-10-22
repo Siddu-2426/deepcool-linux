@@ -26,6 +26,11 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.lighting_mode, "Direct")
         self.assertEqual(config.lighting_brightness, 35)
         self.assertTrue(config.lighting_safe_mode)
+        self.assertFalse(config.gpu_lighting_enabled)
+        self.assertEqual(config.gpu_lighting_device, "")
+        self.assertEqual(config.gpu_lighting_mode, "")
+        self.assertEqual(config.gpu_lighting_color, "")
+        self.assertEqual(config.gpu_lighting_brightness, 100)
 
     def test_invalid_values_are_repaired(self) -> None:
         config = Config(
@@ -93,6 +98,27 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.accent, "violet")
         self.assertFalse(hasattr(config, "future_option"))
 
+    def test_gpu_lighting_is_validated_independently(self) -> None:
+        config = Config(
+            gpu_lighting_enabled=True,
+            gpu_lighting_device="ZOTAC GPU",
+            gpu_lighting_mode="Breathing",
+            gpu_lighting_color="613583",
+            gpu_lighting_brightness=150,
+        ).validate()
+        self.assertTrue(config.gpu_lighting_enabled)
+        self.assertEqual(config.gpu_lighting_color, "#613583")
+        self.assertEqual(config.gpu_lighting_brightness, 100)
+
+        broken = Config(
+            gpu_lighting_enabled=True,
+            gpu_lighting_device="ZOTAC GPU",
+            gpu_lighting_mode="Breathing",
+            gpu_lighting_color="not-a-color",
+        ).validate()
+        self.assertFalse(broken.gpu_lighting_enabled)
+        self.assertEqual(broken.gpu_lighting_color, "")
+
     def test_save_and_load_roundtrip(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "config.json"
@@ -108,6 +134,11 @@ class ConfigTests(unittest.TestCase):
                 lighting_mode="Static",
                 lighting_brightness=42,
                 lighting_safe_mode=False,
+                gpu_lighting_enabled=True,
+                gpu_lighting_device="ZOTAC GPU",
+                gpu_lighting_mode="Breathing",
+                gpu_lighting_color="#613583",
+                gpu_lighting_brightness=80,
             )
             config.save(path)
             self.assertTrue(path.exists())
@@ -126,6 +157,11 @@ class ConfigTests(unittest.TestCase):
             self.assertEqual(loaded.lighting_mode, "Static")
             self.assertEqual(loaded.lighting_brightness, 42)
             self.assertFalse(loaded.lighting_safe_mode)
+            self.assertTrue(loaded.gpu_lighting_enabled)
+            self.assertEqual(loaded.gpu_lighting_device, "ZOTAC GPU")
+            self.assertEqual(loaded.gpu_lighting_mode, "Breathing")
+            self.assertEqual(loaded.gpu_lighting_color, "#613583")
+            self.assertEqual(loaded.gpu_lighting_brightness, 80)
 
     def test_broken_file_falls_back_to_defaults(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

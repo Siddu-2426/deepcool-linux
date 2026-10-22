@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import logging
 import signal
+import threading
 import time
 
-from . import msi_native
+from . import lighting, msi_native
 from .config import Config, config_path
 from .device import (
     DeviceError,
@@ -137,6 +138,70 @@ def _sync_native_lighting(config: Config, state: dict[str, object]) -> None:
     )
 
 
+GpuKey = tuple[str, str, str, int]
+
+
+def _gpu_lighting_key(config: Config) -> GpuKey | None:
+    """Return the saved non-MSI GPU lighting state, if enabled."""
+
+    if not config.gpu_lighting_enabled:
+        return None
+    device = config.gpu_lighting_device.strip()
+    mode = config.gpu_lighting_mode.strip()
+    color = config.gpu_lighting_color.strip()
+    if not (device and mode and color) or "ZOTAC" not in device.upper():
+        return None
+    try:
+        brightness = max(0, min(100, int(config.gpu_lighting_brightness)))
+    except (TypeError, ValueError):
+        brightness = 100
+    return device, mode, color.upper(), brightness
+
+
+def _apply_gpu_lighting(key: GpuKey, state: dict[str, object]) -> None:
+    """Apply the GPU effect once; never touch the native MSI controller."""
+
+    device, mode, color, brightness = key
+    try:
+        lighting.apply_gpu_preset(mode, color, brightness=brightness)
+    except Exception as exc:  # keep the display loop alive
+        state["failed"] = True
+        state["next_retry"] = time.monotonic() + 10.0
+        LOG.warning("GPU lighting update failed: %s", exc)
+    else:
+        state["key"] = key
+        state["failed"] = False
+        LOG.info(
+            "GPU lighting: device=%s effect=%s color=%s brightness=%d%%",
+            device,
+            mode,
+            color,
+            brightness,
+        )
+    finally:
+        state["applying"] = False
+
+
+def _sync_gpu_lighting(config: Config, state: dict[str, object]) -> None:
+    """Start a one-shot GPU update when the saved effect changes."""
+
+    key = _gpu_lighting_key(config)
+    if key is None or key == state.get("key"):
+        return
+    if state.get("applying"):
+        return
+    now = time.monotonic()
+    if state.get("failed") and now < float(state.get("next_retry", 0.0)):
+        return
+    state["applying"] = True
+    threading.Thread(
+        target=_apply_gpu_lighting,
+        args=(key, state),
+        name="gpu-lighting",
+        daemon=True,
+    ).start()
+
+
 def run_daemon(config: Config | None = None) -> int:
     global _stop
     config = (config or Config.load()).validate()
@@ -157,18 +222,31 @@ def run_daemon(config: Config | None = None) -> int:
     secondary_auto_usage = False
     next_retry = 0.0
     next_native_check = 0.0
+    next_gpu_check = 0.0
     last_error = ""
     native_state: dict[str, object] = {"key": None, "active": False}
+    gpu_state: dict[str, object] = {
+        "key": None,
+        "applying": False,
+        "failed": False,
+        "next_retry": 0.0,
+    }
 
     LOG.info("DeepCool Control daemon starting")
     _sync_native_lighting(config, native_state)
+    _sync_gpu_lighting(config, gpu_state)
     next_native_check = time.monotonic() + 5.0
+    next_gpu_check = time.monotonic() + 5.0
     while not _stop:
         now = time.monotonic()
 
         if now >= next_native_check:
             next_native_check = now + 5.0
             _sync_native_lighting(config, native_state)
+
+        if now >= next_gpu_check:
+            next_gpu_check = now + 5.0
+            _sync_gpu_lighting(config, gpu_state)
 
         # Pick up changes made in the GUI while this service owns the display.
         if now >= next_config_check:
@@ -184,6 +262,7 @@ def run_daemon(config: Config | None = None) -> int:
                     secondary_auto_started = time.monotonic()
                     LOG.info("Configuration reloaded")
                     _sync_native_lighting(config, native_state)
+                    _sync_gpu_lighting(config, gpu_state)
 
         if session is None and now >= next_retry:
             info = find_supported_device()
