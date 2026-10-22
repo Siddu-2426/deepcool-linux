@@ -88,9 +88,26 @@ sudo dnf install openrgb
 sudo apt install openrgb
 ```
 
-Choose the controller and zone, pick a color or effect, and press **Apply**. If
-OpenRGB cannot see the controller, sign out and back in so its udev rule is
-applied, and close any other RGB software.
+Choose the controller and zone, pick a color, and press **Apply**. If OpenRGB
+cannot see the controller, sign out and back in so its udev rule is applied,
+and close any other RGB software.
+
+### Lighting safety
+
+Safe mode is enabled by default. It allows only **Direct** mode, one ARGB zone,
+and at most **50%** brightness. **Preview** shows the exact OpenRGB command, and
+every apply is logged to `~/.local/state/deepcool-control/lighting.log` before
+it runs.
+
+MSI Mystic Light effect modes have a history of hanging or bricking RGB
+controllers, and one all-zone `Meteor` write at 100% caused a hard shutdown on
+the reference machine. Turning safe mode off is possible, but effects,
+all-zone writes, and brightness above 50% require a confirmation dialog. Do not
+use `Meteor` on all zones at full brightness.
+
+If the machine shuts down after a lighting change, do not press **Apply** again
+until the ARGB wiring and power supply have been checked. The log shows the
+last command that was sent.
 
 ## Configuration
 

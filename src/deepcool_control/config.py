@@ -12,7 +12,7 @@ from typing import Any
 
 APP_ID = "io.github.deepcool.Control"
 APP_NAME = "DeepCool Control"
-VERSION = "1.2.0"
+VERSION = "1.2.1"
 LIGHTING_COLOR_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
 DEFAULT_LIGHTING_COLOR = "#22D3EE"
 
@@ -54,7 +54,8 @@ class Config:
     lighting_zone: str = ""
     lighting_color: str = DEFAULT_LIGHTING_COLOR
     lighting_mode: str = "Direct"
-    lighting_brightness: int = 100
+    lighting_brightness: int = 35
+    lighting_safe_mode: bool = True
 
     def validate(self) -> "Config":
         if self.primary not in ("cpu_temp", "cpu_usage", "auto"):
@@ -79,8 +80,15 @@ class Config:
         try:
             self.lighting_brightness = int(self.lighting_brightness)
         except (TypeError, ValueError):
-            self.lighting_brightness = 100
+            self.lighting_brightness = 35
         self.lighting_brightness = max(0, min(100, self.lighting_brightness))
+        self.lighting_safe_mode = bool(self.lighting_safe_mode)
+        if self.lighting_safe_mode:
+            # Effect modes and full brightness are what triggered the MSI
+            # Mystic Light shutdown.  Keep stored settings safe even when the
+            # configuration file is edited by hand.
+            self.lighting_mode = "Direct"
+            self.lighting_brightness = min(50, self.lighting_brightness)
         return self
 
     @property

@@ -4,7 +4,7 @@
 %{!?_udevrulesdir:%global _udevrulesdir %{_prefix}/lib/udev/rules.d}
 
 Name:           deepcool-control
-Version:        1.2.0
+Version:        1.2.1
 Release:        1
 Summary:        Native GTK4 app for DeepCool CH-series displays and case lighting
 
@@ -93,6 +93,9 @@ fi
 %{_udevrulesdir}/99-deepcool-digital.rules
 
 %changelog
+* Thu Oct 22 2026 DeepCool Linux contributors - 1.2.1-1
+- Guard MSI Mystic Light writes with a safe mode, risk confirmation, and command log
+
 * Thu Oct 22 2026 DeepCool Linux contributors - 1.2.0-1
 - Add case and motherboard ARGB control through OpenRGB
 

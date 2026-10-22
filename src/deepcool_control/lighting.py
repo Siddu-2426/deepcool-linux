@@ -12,10 +12,14 @@ import re
 import shlex
 import shutil
 import subprocess
+import time
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Sequence
 
 DEFAULT_COLOR = "#22D3EE"
 DEFAULT_MODE = "Direct"
+SAFE_MAX_BRIGHTNESS = 50
 COLOR_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
 _DEVICE_RE = re.compile(r"^\s*(\d+):\s*(.+?)\s*$")
 _FIELD_RE = re.compile(r"^\s+([A-Za-z][A-Za-z ]*):\s*(.*?)\s*$")
@@ -70,6 +74,96 @@ def find_binary() -> str | None:
 
 def available() -> bool:
     return find_binary() is not None
+
+
+def is_mystic_light(device: LightingDevice) -> bool:
+    """Return True for the MSI Mystic Light controller family."""
+
+    text = f"{device.name} {device.description} {device.type}".lower()
+    return "mystic light" in text
+
+
+def risk_reasons(
+    device: LightingDevice,
+    *,
+    mode: str | None = DEFAULT_MODE,
+    brightness: int | None = None,
+    zone_index: int | None = None,
+) -> tuple[str, ...]:
+    """Describe settings that have a history of hanging RGB controllers.
+
+    These are warnings, not a guarantee of safety.  The MSI Mystic Light
+    controller has bricked controllers after firmware effect writes and has
+    caused at least one hard shutdown on the reference machine.
+    """
+
+    reasons: list[str] = []
+    if mode and mode != DEFAULT_MODE:
+        if is_mystic_light(device):
+            reasons.append(
+                f"MSI Mystic Light effect mode {mode!r} instead of Direct"
+            )
+        else:
+            reasons.append(f"effect mode {mode!r} instead of Direct")
+    if zone_index is None:
+        reasons.append("all zones in one write")
+    if brightness is not None and int(brightness) > SAFE_MAX_BRIGHTNESS:
+        reasons.append(
+            f"brightness {int(brightness)}% (above the {SAFE_MAX_BRIGHTNESS}% limit)"
+        )
+    return tuple(reasons)
+
+
+def state_dir() -> Path:
+    base = os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state")
+    return Path(base) / "deepcool-control"
+
+
+def log_path() -> Path:
+    """Path of the append-only lighting command log."""
+
+    return state_dir() / "lighting.log"
+
+
+def command_text(command: Sequence[str]) -> str:
+    """Return a copy/paste-safe representation of an OpenRGB command."""
+
+    return shlex.join(str(part) for part in command)
+
+
+def record_apply(
+    command: Sequence[str],
+    *,
+    device: LightingDevice,
+    color: str,
+    mode: str | None = DEFAULT_MODE,
+    brightness: int | None = None,
+    zone_index: int | None = None,
+    path: Path | None = None,
+) -> None:
+    """Append the exact command to the lighting log before it is executed.
+
+    Logging is best-effort: a read-only home directory must not prevent the
+    requested lighting change.
+    """
+
+    target = path or log_path()
+    zone = "all zones" if zone_index is None else f"zone {zone_index}"
+    level = "default" if brightness is None else f"{int(brightness)}%"
+    line = (
+        f"{time.strftime('%Y-%m-%d %H:%M:%S%z')} "
+        f"device={device.name!r} ({device.index}) zone={zone} "
+        f"mode={(mode or DEFAULT_MODE)!r} color={normalize_color(color)} "
+        f"brightness={level} command={command_text(command)}\n"
+    )
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with target.open("a", encoding="utf-8") as handle:
+            handle.write(line)
+            handle.flush()
+            os.fsync(handle.fileno())
+    except OSError:
+        pass
 
 
 def normalize_color(value: str) -> str:
@@ -170,7 +264,7 @@ def list_devices(binary: str | None = None, timeout: float = 10.0) -> list[Light
         raise LightingError("OpenRGB is not installed")
     try:
         result = subprocess.run(
-            [executable, "--list-devices"],
+            [executable, "--noautoconnect", "--list-devices"],
             capture_output=True,
             text=True,
             timeout=timeout,
@@ -204,7 +298,7 @@ def build_apply_command(
     """Build an ``openrgb`` command that applies a color to a device/zone."""
 
     executable = binary or find_binary() or "openrgb"
-    command = [executable, "--device", str(device.index)]
+    command = [executable, "--noautoconnect", "--device", str(device.index)]
     if zone_index is not None:
         command.extend(["--zone", str(zone_index)])
     if mode:
@@ -225,8 +319,13 @@ def apply_color(
     zone_index: int | None = None,
     binary: str | None = None,
     timeout: float = 20.0,
+    write_log: bool = True,
+    log_file: Path | None = None,
 ) -> None:
     """Apply a color through OpenRGB.
+
+    The exact command is written to :func:`log_path` before OpenRGB starts, so
+    a shutdown during a firmware effect leaves evidence of what was sent.
 
     Raises:
         LightingError: if OpenRGB is missing, times out, or reports a failure.
@@ -241,6 +340,16 @@ def apply_color(
         zone_index=zone_index,
         binary=binary,
     )
+    if write_log:
+        record_apply(
+            command,
+            device=device,
+            color=color,
+            mode=mode,
+            brightness=brightness,
+            zone_index=zone_index,
+            path=log_file,
+        )
     try:
         result = subprocess.run(
             command,

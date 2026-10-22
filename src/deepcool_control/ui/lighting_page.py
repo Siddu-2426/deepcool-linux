@@ -16,6 +16,7 @@ from ..controller import Controller  # noqa: E402
 from .widgets import card, section_title  # noqa: E402
 
 ALL_ZONES = "All zones"
+PREFERRED_SAFE_ZONE = "JRAINBOW1"
 
 
 def _rgba_to_hex(rgba: Gdk.RGBA) -> str:
@@ -64,14 +65,21 @@ class LightingPage(Gtk.ScrolledWindow):
         subtitle.add_css_class("page-subtitle")
         outer.append(subtitle)
 
+        self._build_warning(outer)
         self._build_status(outer)
         self._build_controls(outer)
         self._build_help(outer)
 
+        self._update_warning()
         self._update_controls()
         self._load_devices()
 
     # ------------------------------------------------------------------- ui
+    def _build_warning(self, outer: Gtk.Box) -> None:
+        self.warning_banner = Adw.Banner()
+        self.warning_banner.set_revealed(True)
+        outer.append(self.warning_banner)
+
     def _build_status(self, outer: Gtk.Box) -> None:
         status = Adw.PreferencesGroup()
         status.set_title("OpenRGB")
@@ -93,20 +101,32 @@ class LightingPage(Gtk.ScrolledWindow):
         group = Adw.PreferencesGroup()
         group.set_title("Lighting")
         group.set_description(
-            "Choose a controller and zone, then apply a color or effect. "
-            "The setting is stored by OpenRGB on the RGB controller."
+            "Choose a controller and zone, then apply a color. Safe mode keeps "
+            "writes to Direct mode, one ARGB zone, and low brightness."
         )
+
+        self.safe_row = Adw.SwitchRow(title="Safe mode")
+        self.safe_row.set_subtitle(
+            "Only Direct mode, one ARGB zone, and at most 50% brightness."
+        )
+        self.safe_row.set_active(bool(self.controller.config.lighting_safe_mode))
+        self.safe_row.connect("notify::active", self._on_safe_mode)
+        group.add(self.safe_row)
 
         self.device_row = Adw.ComboRow(title="Controller")
         self.device_row.connect("notify::selected", self._on_device)
         group.add(self.device_row)
 
         self.zone_row = Adw.ComboRow(title="Zone")
-        self.zone_row.set_subtitle("Leave on All zones to update every header.")
+        self.zone_row.set_subtitle(
+            "Use one ARGB header. All zones can write every header at once."
+        )
         group.add(self.zone_row)
 
         self.mode_row = Adw.ComboRow(title="Effect")
-        self.mode_row.set_subtitle("Direct gives the most predictable single color.")
+        self.mode_row.set_subtitle(
+            "Direct is the only mode allowed in safe mode."
+        )
         group.add(self.mode_row)
 
         self.color_row = Adw.ActionRow()
@@ -123,7 +143,9 @@ class LightingPage(Gtk.ScrolledWindow):
 
         self.brightness_row = Adw.SpinRow.new_with_range(0, 100, 1)
         self.brightness_row.set_title("Brightness")
-        self.brightness_row.set_subtitle("Percentage reported by OpenRGB. Not every effect uses it.")
+        self.brightness_row.set_subtitle(
+            "Maximum 50% while safe mode is on. Not every effect uses it."
+        )
         self.brightness_row.set_digits(0)
         self.brightness_row.set_value(self.controller.config.lighting_brightness)
         group.add(self.brightness_row)
@@ -133,6 +155,11 @@ class LightingPage(Gtk.ScrolledWindow):
         self.apply_row.set_subtitle("Send the selected color to the controller.")
         buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         buttons.set_valign(Gtk.Align.CENTER)
+        self.preview_button = Gtk.Button(label="Preview")
+        self.preview_button.add_css_class("flat")
+        self.preview_button.set_tooltip_text("Show the exact OpenRGB command")
+        self.preview_button.connect("clicked", self._preview)
+        buttons.append(self.preview_button)
         self.off_button = Gtk.Button(label="Turn off")
         self.off_button.add_css_class("flat")
         self.off_button.connect("clicked", self._turn_off)
@@ -170,6 +197,19 @@ class LightingPage(Gtk.ScrolledWindow):
         )
         install.add_css_class("about-text")
         help_card.append(install)
+        safety = Gtk.Label(
+            label=(
+                "Safe mode limits writes to Direct, one zone, and 50% brightness. "
+                "The exact OpenRGB command is written to "
+                f"{lighting.log_path()} before it runs. MSI Mystic Light effect "
+                "modes have bricked controllers and caused a hard shutdown on "
+                "this machine; enable them only with the confirmation dialog."
+            ),
+            xalign=0,
+            wrap=True,
+        )
+        safety.add_css_class("about-text")
+        help_card.append(safety)
         outer.append(help_card)
 
     # -------------------------------------------------------------- devices
@@ -203,6 +243,7 @@ class LightingPage(Gtk.ScrolledWindow):
                 Gtk.StringList.new([device.label for device in devices])
             )
             self._select_saved_device()
+        self._update_warning()
         self._update_controls()
         return False
 
@@ -222,8 +263,11 @@ class LightingPage(Gtk.ScrolledWindow):
     def _clear_device_controls(self) -> None:
         self._syncing = True
         self.device_row.set_model(Gtk.StringList.new([]))
-        self.zone_row.set_model(Gtk.StringList.new([ALL_ZONES]))
-        self.zone_row.set_selected(0)
+        zones = [] if self._safe_mode() else [ALL_ZONES]
+        self.zone_row.set_model(Gtk.StringList.new(zones))
+        self.zone_row.set_selected(
+            0 if zones else Gtk.INVALID_LIST_POSITION
+        )
         self.mode_row.set_model(Gtk.StringList.new([lighting.DEFAULT_MODE]))
         self.mode_row.set_selected(0)
         self._syncing = False
@@ -253,6 +297,32 @@ class LightingPage(Gtk.ScrolledWindow):
             return
         device = self._devices[index]
         config = self.controller.config
+        safe = self._safe_mode()
+
+        if safe:
+            zones = list(device.zones)
+            if use_config and config.lighting_zone in zones:
+                zone_index = zones.index(config.lighting_zone)
+            elif PREFERRED_SAFE_ZONE in zones:
+                zone_index = zones.index(PREFERRED_SAFE_ZONE)
+            else:
+                zone_index = 0 if zones else Gtk.INVALID_LIST_POSITION
+            self.zone_row.set_model(Gtk.StringList.new(zones))
+            self.zone_row.set_selected(zone_index)
+
+            self.mode_row.set_model(Gtk.StringList.new([lighting.DEFAULT_MODE]))
+            self.mode_row.set_selected(0)
+
+            level = (
+                config.lighting_brightness
+                if use_config
+                else int(round(self.brightness_row.get_value()))
+            )
+            self.brightness_row.set_range(0, lighting.SAFE_MAX_BRIGHTNESS)
+            self.brightness_row.set_value(
+                max(0, min(lighting.SAFE_MAX_BRIGHTNESS, int(level)))
+            )
+            return
 
         zones = [ALL_ZONES, *device.zones]
         self.zone_row.set_model(Gtk.StringList.new(zones))
@@ -263,12 +333,24 @@ class LightingPage(Gtk.ScrolledWindow):
 
         modes = list(device.modes) or [lighting.DEFAULT_MODE]
         self.mode_row.set_model(Gtk.StringList.new(modes))
-        mode_index = 0
-        if use_config and config.lighting_mode in modes:
+        if config.lighting_mode in modes:
             mode_index = modes.index(config.lighting_mode)
         elif device.active_mode in modes:
             mode_index = modes.index(device.active_mode)
+        else:
+            mode_index = 0
         self.mode_row.set_selected(mode_index)
+
+        level = (
+            config.lighting_brightness
+            if use_config
+            else int(round(self.brightness_row.get_value()))
+        )
+        self.brightness_row.set_range(0, 100)
+        self.brightness_row.set_value(max(0, min(100, int(level))))
+
+    def _safe_mode(self) -> bool:
+        return bool(self.controller.config.lighting_safe_mode)
 
     def _current_device(self) -> lighting.LightingDevice | None:
         index = self.device_row.get_selected()
@@ -281,6 +363,10 @@ class LightingPage(Gtk.ScrolledWindow):
         if device is None:
             return "", None
         index = self.zone_row.get_selected()
+        if self._safe_mode():
+            if 0 <= index < len(device.zones):
+                return device.zones[index], index
+            return "", None
         if 0 < index <= len(device.zones):
             return device.zones[index - 1], index - 1
         return "", None
@@ -300,21 +386,26 @@ class LightingPage(Gtk.ScrolledWindow):
         )
 
     def _apply(self, _button: Gtk.Button | None = None) -> None:
-        self._send(color=self._pending_color)
+        self._request_send(color=self._pending_color)
 
     def _turn_off(self, _button: Gtk.Button) -> None:
         device = self._current_device()
         mode = "Direct" if device and "Direct" in device.modes else self._selected_mode()
         self._pending_color = "#000000"
         self._set_color(self._pending_color)
-        self._send(color=self._pending_color, brightness=0, mode=mode)
+        self._request_send(
+            color=self._pending_color,
+            brightness=0,
+            mode=mode,
+        )
 
-    def _send(
+    def _request_send(
         self,
         *,
         color: str,
         brightness: int | None = None,
         mode: str | None = None,
+        confirm: bool = True,
     ) -> None:
         if self._busy:
             return
@@ -329,15 +420,135 @@ class LightingPage(Gtk.ScrolledWindow):
             return
 
         mode = self._selected_mode() if mode is None else mode
+        mode = mode or lighting.DEFAULT_MODE
         if brightness is None:
             brightness = int(round(self.brightness_row.get_value()))
         zone_name, zone_index = self._selected_zone()
 
+        if self._safe_mode():
+            mode = lighting.DEFAULT_MODE
+            brightness = min(int(brightness), lighting.SAFE_MAX_BRIGHTNESS)
+            if zone_index is None:
+                if device.zones:
+                    zone_name = (
+                        PREFERRED_SAFE_ZONE
+                        if PREFERRED_SAFE_ZONE in device.zones
+                        else device.zones[0]
+                    )
+                    zone_index = device.zones.index(zone_name)
+                else:
+                    self.controller.emit(
+                        "toast",
+                        "No RGB zone was reported; refusing to write all zones",
+                        "error",
+                    )
+                    return
+
+        reasons = lighting.risk_reasons(
+            device,
+            mode=mode,
+            brightness=brightness,
+            zone_index=zone_index,
+        )
+        if confirm and reasons:
+            self._confirm_risky(
+                device,
+                color,
+                mode,
+                int(brightness),
+                zone_name,
+                zone_index,
+                reasons,
+            )
+            return
+        self._send(device, color, mode, int(brightness), zone_name, zone_index)
+
+    def _confirm_risky(
+        self,
+        device: lighting.LightingDevice,
+        color: str,
+        mode: str,
+        brightness: int,
+        zone_name: str,
+        zone_index: int | None,
+        reasons: tuple[str, ...],
+    ) -> None:
+        command = lighting.build_apply_command(
+            device,
+            color,
+            mode=mode,
+            brightness=brightness,
+            zone_index=zone_index,
+        )
+        lines = [
+            "These settings match patterns that have hung or damaged RGB "
+            "controllers:",
+            *(f"• {reason}" for reason in reasons),
+            "",
+            f"Command: {lighting.command_text(command)}",
+        ]
+        if lighting.is_mystic_light(device):
+            lines.extend(
+                [
+                    "",
+                    "MSI Mystic Light effect modes have bricked controllers and "
+                    "caused a hard shutdown on this machine.",
+                ]
+            )
+        dialog = Adw.MessageDialog(
+            transient_for=self.window,
+            heading="Apply risky lighting settings?",
+            body="\n".join(lines),
+        )
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("apply", "Apply anyway")
+        dialog.set_response_appearance("apply", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.set_default_response("cancel")
+        dialog.set_close_response("cancel")
+        dialog.set_response_enabled("apply", False)
+
+        check = Gtk.CheckButton(
+            label="I understand this can hang the controller or shut down the PC"
+        )
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        box.append(check)
+        dialog.set_extra_child(box)
+        check.connect(
+            "toggled",
+            lambda button: dialog.set_response_enabled(
+                "apply", button.get_active()
+            ),
+        )
+
+        def on_response(active_dialog: Adw.MessageDialog, response: str) -> None:
+            if response == "apply":
+                self._send(
+                    device,
+                    color,
+                    mode,
+                    brightness,
+                    zone_name,
+                    zone_index,
+                )
+            active_dialog.close()
+
+        dialog.connect("response", on_response)
+        dialog.present()
+
+    def _send(
+        self,
+        device: lighting.LightingDevice,
+        color: str,
+        mode: str,
+        brightness: int,
+        zone_name: str,
+        zone_index: int | None,
+    ) -> None:
         self.controller.configure(
             lighting_device=device.name,
             lighting_zone=zone_name,
             lighting_color=color,
-            lighting_mode=mode or lighting.DEFAULT_MODE,
+            lighting_mode=mode,
             lighting_brightness=brightness,
         )
         self._pending_color = color
@@ -350,13 +561,72 @@ class LightingPage(Gtk.ScrolledWindow):
             lambda: lighting.apply_color(
                 device,
                 color,
-                mode=mode or None,
+                mode=mode,
                 brightness=brightness,
                 zone_index=zone_index,
             ),
             self._apply_done,
             self._apply_failed,
         )
+
+    def _preview(self, _button: Gtk.Button | None = None) -> None:
+        device = self._current_device()
+        if device is None:
+            self.controller.emit("toast", "No RGB controller selected", "error")
+            return
+        mode = self._selected_mode() or lighting.DEFAULT_MODE
+        brightness = int(round(self.brightness_row.get_value()))
+        zone_name, zone_index = self._selected_zone()
+        if self._safe_mode() and zone_index is None:
+            self.controller.emit(
+                "toast",
+                "No RGB zone was reported; refusing to preview all zones",
+                "error",
+            )
+            return
+        command = lighting.build_apply_command(
+            device,
+            self._pending_color,
+            mode=mode,
+            brightness=brightness,
+            zone_index=zone_index,
+        )
+        reasons = lighting.risk_reasons(
+            device,
+            mode=mode,
+            brightness=brightness,
+            zone_index=zone_index,
+        )
+        lines = [f"Command:\n{lighting.command_text(command)}"]
+        if reasons:
+            lines.append("")
+            lines.append("Risky settings:")
+            lines.extend(f"• {reason}" for reason in reasons)
+        else:
+            lines.extend(["", "No risky settings detected."])
+        dialog = Adw.MessageDialog(
+            transient_for=self.window,
+            heading="Lighting command preview",
+            body="\n".join(lines),
+        )
+        dialog.add_response("close", "Close")
+        dialog.set_default_response("close")
+        dialog.set_close_response("close")
+        dialog.present()
+
+    def _on_safe_mode(self, row: Adw.SwitchRow, _pspec) -> None:
+        if self._syncing:
+            return
+        zone_name, _zone_index = self._selected_zone()
+        self.controller.configure(
+            lighting_safe_mode=bool(row.get_active()),
+            lighting_zone=zone_name,
+        )
+        self._syncing = True
+        self._sync_device(self.device_row.get_selected(), use_config=True)
+        self._syncing = False
+        self._update_warning()
+        self._update_controls()
 
     def _apply_done(self, _result: object) -> bool:
         self._busy = False
@@ -378,19 +648,38 @@ class LightingPage(Gtk.ScrolledWindow):
         if rgba.parse(color):
             self.color_button.set_rgba(rgba)
 
+    def _update_warning(self) -> None:
+        if not hasattr(self, "warning_banner"):
+            return
+        if self._safe_mode():
+            self.warning_banner.set_title(
+                "Safe mode: Direct, one ARGB zone, 50% maximum. "
+                "The exact command is logged before it runs."
+            )
+        else:
+            self.warning_banner.set_title(
+                "Safe mode is off. MSI Mystic Light effects and all-zone "
+                "writes have caused controller hangs and a hard shutdown."
+            )
+
     def _update_controls(self) -> None:
+        _zone_name, zone_index = self._selected_zone()
         enabled = bool(self._devices) and not self._busy
+        if self._safe_mode():
+            enabled = enabled and zone_index is not None
         for widget in (
             self.device_row,
             self.zone_row,
             self.mode_row,
             self.color_row,
             self.brightness_row,
+            self.preview_button,
             self.apply_button,
             self.off_button,
             self.color_button,
         ):
             widget.set_sensitive(enabled)
+        self.safe_row.set_sensitive(not self._busy)
         self.refresh_button.set_sensitive(not self._busy)
 
     @staticmethod

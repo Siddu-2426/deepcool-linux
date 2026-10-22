@@ -24,7 +24,8 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.lighting_device, "")
         self.assertEqual(config.lighting_color, "#22D3EE")
         self.assertEqual(config.lighting_mode, "Direct")
-        self.assertEqual(config.lighting_brightness, 100)
+        self.assertEqual(config.lighting_brightness, 35)
+        self.assertTrue(config.lighting_safe_mode)
 
     def test_invalid_values_are_repaired(self) -> None:
         config = Config(
@@ -46,7 +47,34 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.color_scheme, "system")
         self.assertEqual(config.lighting_color, "#22D3EE")
         self.assertEqual(config.lighting_mode, "Direct")
+        self.assertEqual(config.lighting_brightness, 50)
+
+    def test_safe_mode_repairs_risky_lighting(self) -> None:
+        config = Config(
+            lighting_mode="Meteor",
+            lighting_brightness=100,
+        ).validate()
+        self.assertTrue(config.lighting_safe_mode)
+        self.assertEqual(config.lighting_mode, "Direct")
+        self.assertEqual(config.lighting_brightness, 50)
+
+    def test_safe_mode_can_be_disabled(self) -> None:
+        config = Config(
+            lighting_mode="Meteor",
+            lighting_brightness=100,
+            lighting_safe_mode=False,
+        ).validate()
+        self.assertFalse(config.lighting_safe_mode)
+        self.assertEqual(config.lighting_mode, "Meteor")
         self.assertEqual(config.lighting_brightness, 100)
+
+    def test_missing_safe_mode_defaults_to_on(self) -> None:
+        config = Config.from_dict(
+            {"lighting_mode": "Meteor", "lighting_brightness": 100}
+        )
+        self.assertTrue(config.lighting_safe_mode)
+        self.assertEqual(config.lighting_mode, "Direct")
+        self.assertEqual(config.lighting_brightness, 50)
 
     def test_clamps_high_values(self) -> None:
         config = Config(interval_ms=99999, auto_cycle_s=1).validate()
@@ -79,6 +107,7 @@ class ConfigTests(unittest.TestCase):
                 lighting_color="#FF8800",
                 lighting_mode="Static",
                 lighting_brightness=42,
+                lighting_safe_mode=False,
             )
             config.save(path)
             self.assertTrue(path.exists())
@@ -96,6 +125,7 @@ class ConfigTests(unittest.TestCase):
             self.assertEqual(loaded.lighting_color, "#FF8800")
             self.assertEqual(loaded.lighting_mode, "Static")
             self.assertEqual(loaded.lighting_brightness, 42)
+            self.assertFalse(loaded.lighting_safe_mode)
 
     def test_broken_file_falls_back_to_defaults(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

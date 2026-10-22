@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "deepcool-control"
-version = "1.2.0"
+version = "1.2.1"
 description = "Native GTK4 app for DeepCool CH-series displays and case lighting"
 readme = "README.md"
 requires-python = ">=3.11"
