@@ -12,6 +12,9 @@ from pathlib import Path
 RULE_NAME = "99-deepcool-digital.rules"
 RULE_PATH = Path("/etc/udev/rules.d") / RULE_NAME
 PACKAGE_RULE_PATH = Path("/usr/lib/udev/rules.d") / RULE_NAME
+MSI_RULE_NAME = "99-deepcool-msi-mystic-light.rules"
+MSI_RULE_PATH = Path("/etc/udev/rules.d") / MSI_RULE_NAME
+MSI_PACKAGE_RULE_PATH = Path("/usr/lib/udev/rules.d") / MSI_RULE_NAME
 SERVICE_NAME = "deepcool-control.service"
 AUTOSTART_NAME = "deepcool-control.desktop"
 
@@ -164,6 +167,10 @@ def service_enabled() -> bool:
 
 def udev_rule_installed() -> bool:
     return RULE_PATH.exists() or PACKAGE_RULE_PATH.exists()
+
+
+def msi_udev_rule_installed() -> bool:
+    return MSI_RULE_PATH.exists() or MSI_PACKAGE_RULE_PATH.exists()
 
 
 def install_udev_rule(force: bool = False) -> tuple[bool, str]:

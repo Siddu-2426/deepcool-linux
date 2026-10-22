@@ -69,8 +69,11 @@ class ParseTests(unittest.TestCase):
         self.assertEqual(parse_devices("Connection attempt failed\n"), [])
 
     def test_missing_openrgb_binary_raises(self) -> None:
-        with self.assertRaises(LightingError):
-            list_devices("/nonexistent/openrgb")
+        with mock.patch(
+            "deepcool_control.lighting._native_devices", return_value=[]
+        ):
+            with self.assertRaises(LightingError):
+                list_devices("/nonexistent/openrgb")
 
 
 class ColorTests(unittest.TestCase):

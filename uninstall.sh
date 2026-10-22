@@ -13,7 +13,7 @@ Usage: ./uninstall.sh [options]
 Options:
   --user       Remove the per-user installation (default).
   --system     Remove the /usr/local installation (requires sudo).
-  --udev       Also remove /etc/udev/rules.d/99-deepcool-digital.rules.
+  --udev       Also remove the DeepCool display and MSI permission rules.
   --purge      Also remove ~/.config/deepcool-control.
   --help       Show this help.
 EOF
@@ -58,13 +58,15 @@ echo "Removing application files from $PREFIX…"
 
 if [ "$REMOVE_UDEV" -eq 1 ]; then
   if [ "$(id -u)" -eq 0 ]; then
-    rm -f /etc/udev/rules.d/99-deepcool-digital.rules
+    rm -f /etc/udev/rules.d/99-deepcool-digital.rules \
+      /etc/udev/rules.d/99-deepcool-msi-mystic-light.rules
     udevadm control --reload-rules || true
   elif command -v sudo >/dev/null 2>&1; then
-    sudo rm -f /etc/udev/rules.d/99-deepcool-digital.rules
+    sudo rm -f /etc/udev/rules.d/99-deepcool-digital.rules \
+      /etc/udev/rules.d/99-deepcool-msi-mystic-light.rules
     sudo udevadm control --reload-rules || true
   else
-    echo "Remove /etc/udev/rules.d/99-deepcool-digital.rules as root." >&2
+    echo "Remove /etc/udev/rules.d/99-deepcool-digital.rules and 99-deepcool-msi-mystic-light.rules as root." >&2
   fi
 fi
 

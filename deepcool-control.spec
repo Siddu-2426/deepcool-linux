@@ -4,7 +4,7 @@
 %{!?_udevrulesdir:%global _udevrulesdir %{_prefix}/lib/udev/rules.d}
 
 Name:           deepcool-control
-Version:        1.2.1
+Version:        1.2.2
 Release:        1
 Summary:        Native GTK4 app for DeepCool CH-series displays and case lighting
 
@@ -27,8 +27,9 @@ digital case displays. It reads CPU and GPU temperature and utilisation
 locally and drives the two three-digit readouts and ten-cell load bars over
 USB HID.
 
-Case and motherboard ARGB can be controlled through OpenRGB from the
-Lighting page.
+Case and motherboard ARGB can be controlled from the Lighting page. MSI
+Mystic Light boards are driven through a native HID backend; other
+controllers use OpenRGB.
 
 Supported displays include CH360 DIGITAL, CH560 DIGITAL and MORPHEUS.
 
@@ -66,6 +67,8 @@ install -m 0644 data/icons/hicolor/scalable/apps/io.github.deepcool.Control.svg 
   %{buildroot}%{_datadir}/icons/hicolor/scalable/apps/io.github.deepcool.Control.svg
 install -m 0644 data/99-deepcool-digital.rules \
   %{buildroot}%{_udevrulesdir}/99-deepcool-digital.rules
+install -m 0644 data/99-deepcool-msi-mystic-light.rules \
+  %{buildroot}%{_udevrulesdir}/99-deepcool-msi-mystic-light.rules
 
 %check
 desktop-file-validate data/io.github.deepcool.Control.desktop
@@ -91,8 +94,12 @@ fi
 %{_datadir}/applications/io.github.deepcool.Control.desktop
 %{_datadir}/icons/hicolor/scalable/apps/io.github.deepcool.Control.svg
 %{_udevrulesdir}/99-deepcool-digital.rules
+%{_udevrulesdir}/99-deepcool-msi-mystic-light.rules
 
 %changelog
+* Thu Oct 22 2026 DeepCool Linux contributors - 1.2.2-1
+- Use a native MSI Mystic Light HID backend on MS-7D77 and render effects on the host
+
 * Thu Oct 22 2026 DeepCool Linux contributors - 1.2.1-1
 - Guard MSI Mystic Light writes with a safe mode, risk confirmation, and command log
 

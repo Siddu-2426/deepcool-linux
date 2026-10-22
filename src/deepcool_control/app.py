@@ -124,6 +124,10 @@ def _print_doctor() -> int:
     print()
 
     print(f"udev rule: {'installed' if system.udev_rule_installed() else 'missing'}")
+    print(
+        f"MSI udev rule: "
+        f"{'installed' if system.msi_udev_rule_installed() else 'missing'}"
+    )
     print(f"service: {'active' if system.service_active() else 'inactive'}")
     print(f"service enabled: {system.service_enabled()}")
     print(f"service file: {system.service_path()}")
@@ -131,19 +135,19 @@ def _print_doctor() -> int:
     print(f"config file: {_config_path()}")
     openrgb = lighting.find_binary()
     print(f"OpenRGB: {openrgb or 'not found'}")
-    if openrgb is not None:
-        try:
-            rgb_devices = lighting.list_devices(openrgb)
-        except lighting.LightingError as exc:
-            print(f"OpenRGB devices: error: {exc}")
-        else:
-            print(f"OpenRGB devices: {len(rgb_devices)}")
-            for device in rgb_devices:
-                zones = ", ".join(device.zones) or "-"
-                print(
-                    f"  [{device.index}] {device.name} "
-                    f"zones={zones} modes={len(device.modes)}"
-                )
+    try:
+        rgb_devices = lighting.list_devices(openrgb)
+    except lighting.LightingError as exc:
+        print(f"RGB devices: error: {exc}")
+    else:
+        print(f"RGB devices: {len(rgb_devices)}")
+        for device in rgb_devices:
+            zones = ", ".join(device.zones) or "-"
+            backend = "native" if device.native else "openrgb"
+            print(
+                f"  [{device.index}] {device.name} backend={backend} "
+                f"zones={zones} modes={len(device.modes)}"
+            )
     print()
     if not any(info.supported and os.access(info.path, os.W_OK) for info in devices):
         print("No writable supported display found. Install the udev rule using the app.")
@@ -243,6 +247,7 @@ def _run_gui(demo: bool = False) -> int:
         def do_shutdown(self) -> None:
             if self.controller is not None and not self._stopped:
                 self._stopped = True
+                lighting.stop_native()
                 self.controller.shutdown()
             Adw.Application.do_shutdown(self)
 

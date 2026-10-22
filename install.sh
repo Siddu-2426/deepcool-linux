@@ -13,10 +13,10 @@ Usage: ./install.sh [options]
 Options:
   --user       Install for the current user (default).
   --system     Install under /usr/local with sudo.
-  --udev       Install the hidraw permission rule (asks for administrator access).
+  --udev       Install the hidraw permission rules (asks for administrator access).
   --help       Show this help.
 
-The app can also install the permission rule from Settings → Grant access.
+The app can also install the display permission rule from Settings → Grant access.
 EOF
 }
 
@@ -107,19 +107,21 @@ if command -v gtk-update-icon-cache >/dev/null 2>&1; then
 fi
 
 if [ "$INSTALL_UDEV" -eq 1 ]; then
-  RULE_SRC="$ROOT/data/99-deepcool-digital.rules"
-  RULE_DST="/etc/udev/rules.d/99-deepcool-digital.rules"
-  echo "Installing the device permission rule…"
+  echo "Installing the device permission rules…"
   if [ "$(id -u)" -eq 0 ]; then
-    install -m 0644 "$RULE_SRC" "$RULE_DST"
+    for rule in 99-deepcool-digital.rules 99-deepcool-msi-mystic-light.rules; do
+      install -m 0644 "$ROOT/data/$rule" "/etc/udev/rules.d/$rule"
+    done
     udevadm control --reload-rules
     udevadm trigger --action=add --subsystem-match=hidraw
   elif command -v sudo >/dev/null 2>&1; then
-    sudo sh -c "install -m 0644 '$RULE_SRC' '$RULE_DST' && udevadm control --reload-rules && udevadm trigger --action=add --subsystem-match=hidraw"
+    sudo sh -c 'for rule in "$@"; do install -m 0644 "$rule" "/etc/udev/rules.d/$(basename "$rule")"; done && udevadm control --reload-rules && udevadm trigger --action=add --subsystem-match=hidraw' \
+      sh "$ROOT/data/99-deepcool-digital.rules" "$ROOT/data/99-deepcool-msi-mystic-light.rules"
   elif command -v pkexec >/dev/null 2>&1; then
-    pkexec sh -c "install -m 0644 '$RULE_SRC' '$RULE_DST' && udevadm control --reload-rules && udevadm trigger --action=add --subsystem-match=hidraw"
+    pkexec sh -c 'for rule in "$@"; do install -m 0644 "$rule" "/etc/udev/rules.d/$(basename "$rule")"; done && udevadm control --reload-rules && udevadm trigger --action=add --subsystem-match=hidraw' \
+      sh "$ROOT/data/99-deepcool-digital.rules" "$ROOT/data/99-deepcool-msi-mystic-light.rules"
   else
-    echo "Could not obtain administrator access to install the udev rule." >&2
+    echo "Could not obtain administrator access to install the udev rules." >&2
   fi
 fi
 
@@ -128,7 +130,7 @@ echo "DeepCool Control is installed."
 echo "  Launch: $BIN_DIR/deepcool-control"
 echo "  Diagnose: $BIN_DIR/deepcool-control --doctor"
 if ! command -v openrgb >/dev/null 2>&1; then
-  echo "  Note: OpenRGB was not found. Case lighting stays disabled until it is installed."
+  echo "  Note: OpenRGB was not found. Non-MSI controllers need it; MSI Mystic Light boards use the native backend."
 fi
 case ":$PATH:" in
   *":$BIN_DIR:"*) ;;

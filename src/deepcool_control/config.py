@@ -12,7 +12,7 @@ from typing import Any
 
 APP_ID = "io.github.deepcool.Control"
 APP_NAME = "DeepCool Control"
-VERSION = "1.2.1"
+VERSION = "1.2.2"
 LIGHTING_COLOR_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
 DEFAULT_LIGHTING_COLOR = "#22D3EE"
 

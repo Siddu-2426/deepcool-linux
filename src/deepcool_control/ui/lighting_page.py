@@ -58,7 +58,10 @@ class LightingPage(Gtk.ScrolledWindow):
         title.add_css_class("page-title")
         outer.append(title)
         subtitle = Gtk.Label(
-            label="Control case and motherboard ARGB through OpenRGB.",
+            label=(
+                "Control case and motherboard ARGB. MSI Mystic Light boards "
+                "use the native HID backend; other controllers use OpenRGB."
+            ),
             xalign=0,
             wrap=True,
         )
@@ -82,7 +85,7 @@ class LightingPage(Gtk.ScrolledWindow):
 
     def _build_status(self, outer: Gtk.Box) -> None:
         status = Adw.PreferencesGroup()
-        status.set_title("OpenRGB")
+        status.set_title("RGB controller")
         self.status_row = Adw.ActionRow()
         self.status_row.set_title("RGB controller")
         self.status_row.set_subtitle("Looking for OpenRGB…")
@@ -181,7 +184,8 @@ class LightingPage(Gtk.ScrolledWindow):
             section_title(
                 "How case lighting works",
                 "The DeepCool display's USB protocol only drives the numeric panel. "
-                "Case ARGB is controlled separately through OpenRGB and the "
+                "Case ARGB is controlled separately. MSI Mystic Light boards use "
+                "the native HID backend; other controllers use OpenRGB and the "
                 "motherboard RGB header.",
             )
         )
@@ -200,10 +204,10 @@ class LightingPage(Gtk.ScrolledWindow):
         safety = Gtk.Label(
             label=(
                 "Safe mode limits writes to Direct, one zone, and 50% brightness. "
-                "The exact OpenRGB command is written to "
-                f"{lighting.log_path()} before it runs. MSI Mystic Light effect "
-                "modes have bricked controllers and caused a hard shutdown on "
-                "this machine; enable them only with the confirmation dialog."
+                "Every apply is written to "
+                f"{lighting.log_path()} before it runs. Native MSI effects are "
+                "rendered on the host; OpenRGB MSI firmware effect modes have "
+                "bricked controllers and caused a hard shutdown on this machine."
             ),
             xalign=0,
             wrap=True,
@@ -236,7 +240,7 @@ class LightingPage(Gtk.ScrolledWindow):
             self._clear_device_controls()
         else:
             self.status_row.set_subtitle(
-                f"OpenRGB detected {len(devices)} controller"
+                f"Detected {len(devices)} controller"
                 f"{'' if len(devices) == 1 else 's'}."
             )
             self.device_row.set_model(
@@ -301,10 +305,11 @@ class LightingPage(Gtk.ScrolledWindow):
 
         if safe:
             zones = list(device.zones)
+            preferred = self._preferred_zone(device)
             if use_config and config.lighting_zone in zones:
                 zone_index = zones.index(config.lighting_zone)
-            elif PREFERRED_SAFE_ZONE in zones:
-                zone_index = zones.index(PREFERRED_SAFE_ZONE)
+            elif preferred in zones:
+                zone_index = zones.index(preferred)
             else:
                 zone_index = 0 if zones else Gtk.INVALID_LIST_POSITION
             self.zone_row.set_model(Gtk.StringList.new(zones))
@@ -329,6 +334,10 @@ class LightingPage(Gtk.ScrolledWindow):
         zone_index = 0
         if use_config and config.lighting_zone in device.zones:
             zone_index = device.zones.index(config.lighting_zone) + 1
+        elif device.native and self._preferred_zone(device) in device.zones:
+            # Default native MSI boards to the header used by the cabinet
+            # fans instead of writing every header at once.
+            zone_index = device.zones.index(self._preferred_zone(device)) + 1
         self.zone_row.set_selected(zone_index)
 
         modes = list(device.modes) or [lighting.DEFAULT_MODE]
@@ -351,6 +360,14 @@ class LightingPage(Gtk.ScrolledWindow):
 
     def _safe_mode(self) -> bool:
         return bool(self.controller.config.lighting_safe_mode)
+
+    @staticmethod
+    def _preferred_zone(device: lighting.LightingDevice) -> str:
+        # The case fans on the reference MS-7D77 are wired to JARGB_V2_2
+        # (OpenRGB zone name JRAINBOW2).
+        if device.native and "JRAINBOW2" in device.zones:
+            return "JRAINBOW2"
+        return PREFERRED_SAFE_ZONE
 
     def _current_device(self) -> lighting.LightingDevice | None:
         index = self.device_row.get_selected()
@@ -430,9 +447,10 @@ class LightingPage(Gtk.ScrolledWindow):
             brightness = min(int(brightness), lighting.SAFE_MAX_BRIGHTNESS)
             if zone_index is None:
                 if device.zones:
+                    preferred = self._preferred_zone(device)
                     zone_name = (
-                        PREFERRED_SAFE_ZONE
-                        if PREFERRED_SAFE_ZONE in device.zones
+                        preferred
+                        if preferred in device.zones
                         else device.zones[0]
                     )
                     zone_index = device.zones.index(zone_name)
@@ -584,20 +602,34 @@ class LightingPage(Gtk.ScrolledWindow):
                 "error",
             )
             return
-        command = lighting.build_apply_command(
-            device,
-            self._pending_color,
-            mode=mode,
-            brightness=brightness,
-            zone_index=zone_index,
-        )
-        reasons = lighting.risk_reasons(
-            device,
-            mode=mode,
-            brightness=brightness,
-            zone_index=zone_index,
-        )
-        lines = [f"Command:\n{lighting.command_text(command)}"]
+        if device.native:
+            effect = lighting.msi_native.effect_for_mode(mode)
+            lines = [
+                "Native MSI command:\n"
+                f"zone={zone_name or 'all'} effect={effect} "
+                f"color={self._pending_color} brightness={brightness}%"
+            ]
+            reasons = lighting.risk_reasons(
+                device,
+                mode=mode,
+                brightness=brightness,
+                zone_index=zone_index,
+            )
+        else:
+            command = lighting.build_apply_command(
+                device,
+                self._pending_color,
+                mode=mode,
+                brightness=brightness,
+                zone_index=zone_index,
+            )
+            reasons = lighting.risk_reasons(
+                device,
+                mode=mode,
+                brightness=brightness,
+                zone_index=zone_index,
+            )
+            lines = [f"Command:\n{lighting.command_text(command)}"]
         if reasons:
             lines.append("")
             lines.append("Risky settings:")
@@ -650,6 +682,14 @@ class LightingPage(Gtk.ScrolledWindow):
 
     def _update_warning(self) -> None:
         if not hasattr(self, "warning_banner"):
+            return
+        device = self._current_device()
+        if device is not None and device.native:
+            self.warning_banner.set_title(
+                "Native MSI mode: effects are rendered on the host and sent as "
+                "per-LED frames. Other tools must not drive the controller at "
+                "the same time."
+            )
             return
         if self._safe_mode():
             self.warning_banner.set_title(

@@ -17,6 +17,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
 
+from . import msi_native
+
 DEFAULT_COLOR = "#22D3EE"
 DEFAULT_MODE = "Direct"
 SAFE_MAX_BRIGHTNESS = 50
@@ -52,6 +54,7 @@ class LightingDevice:
     active_mode: str = ""
     zones: tuple[str, ...] = ()
     leds: tuple[str, ...] = ()
+    native: bool = False
 
     @property
     def label(self) -> str:
@@ -98,6 +101,10 @@ def risk_reasons(
     """
 
     reasons: list[str] = []
+    if device.native:
+        # Native mode renders effects in user space and only writes the two
+        # documented LED reports; there are no firmware effect commands.
+        return ()
     if mode and mode != DEFAULT_MODE:
         if is_mystic_light(device):
             reasons.append(
@@ -139,6 +146,7 @@ def record_apply(
     mode: str | None = DEFAULT_MODE,
     brightness: int | None = None,
     zone_index: int | None = None,
+    zone_name: str | None = None,
     path: Path | None = None,
 ) -> None:
     """Append the exact command to the lighting log before it is executed.
@@ -148,7 +156,10 @@ def record_apply(
     """
 
     target = path or log_path()
-    zone = "all zones" if zone_index is None else f"zone {zone_index}"
+    if zone_name:
+        zone = zone_name
+    else:
+        zone = "all zones" if zone_index is None else f"zone {zone_index}"
     level = "default" if brightness is None else f"{int(brightness)}%"
     line = (
         f"{time.strftime('%Y-%m-%d %H:%M:%S%z')} "
@@ -256,11 +267,40 @@ def _clean_output(*parts: str | None) -> str:
     return " ".join(lines)[-600:]
 
 
-def list_devices(binary: str | None = None, timeout: float = 10.0) -> list[LightingDevice]:
-    """Return controllers detected by OpenRGB."""
+def _native_devices() -> list[LightingDevice]:
+    """Build LightingDevice wrappers for connected MSI controllers."""
 
+    try:
+        infos = msi_native.find_devices()
+    except OSError:
+        return []
+    devices: list[LightingDevice] = []
+    for position, info in enumerate(infos):
+        devices.append(
+            LightingDevice(
+                index=-1 - position,
+                name=f"{info.name} (native)",
+                type="Motherboard",
+                description=info.description,
+                location=info.path,
+                serial=info.serial,
+                modes=msi_native.MODES,
+                active_mode="Direct",
+                zones=tuple(zone.key for zone in msi_native.ZONES),
+                native=True,
+            )
+        )
+    return devices
+
+
+def list_devices(binary: str | None = None, timeout: float = 10.0) -> list[LightingDevice]:
+    """Return native MSI controllers plus controllers detected by OpenRGB."""
+
+    native = _native_devices()
     executable = binary or find_binary()
     if executable is None:
+        if native:
+            return native
         raise LightingError("OpenRGB is not installed")
     try:
         result = subprocess.run(
@@ -271,13 +311,26 @@ def list_devices(binary: str | None = None, timeout: float = 10.0) -> list[Light
             check=False,
         )
     except FileNotFoundError as exc:
+        if native:
+            return native
         raise LightingError("OpenRGB is not installed") from exc
     except subprocess.TimeoutExpired as exc:
+        if native:
+            return native
         raise LightingError("OpenRGB did not respond in time") from exc
     except OSError as exc:
+        if native:
+            return native
         raise LightingError(f"Could not start OpenRGB: {exc}") from exc
 
     devices = parse_devices(result.stdout)
+    if native:
+        # The native path is the working one for these boards; hide the
+        # duplicate OpenRGB entry so the Lighting page does not offer a
+        # backend that cannot drive the fans.
+        return native + [
+            device for device in devices if not is_mystic_light(device)
+        ]
     if devices:
         return devices
     if result.returncode != 0:
@@ -310,6 +363,70 @@ def build_apply_command(
     return command
 
 
+def apply_native(
+    device: LightingDevice,
+    color: str,
+    *,
+    mode: str | None = DEFAULT_MODE,
+    brightness: int | None = None,
+    zone_index: int | None = None,
+    write_log: bool = True,
+    log_file: Path | None = None,
+) -> None:
+    """Apply a colour/effect through the native MSI per-LED backend."""
+
+    normalized = normalize_color(color)
+    rgb = (
+        int(normalized[1:3], 16),
+        int(normalized[3:5], 16),
+        int(normalized[5:7], 16),
+    )
+    effect = msi_native.effect_for_mode(mode or DEFAULT_MODE)
+    zone_name = ""
+    if zone_index is not None and 0 <= zone_index < len(device.zones):
+        zone_name = device.zones[zone_index]
+    level = 100 if brightness is None else max(0, min(100, int(brightness)))
+
+    if write_log:
+        command = [
+            "native-msi",
+            "--zone",
+            zone_name or "all",
+            "--effect",
+            effect,
+            "--color",
+            normalized.lstrip("#"),
+            "--brightness",
+            str(level),
+        ]
+        record_apply(
+            command,
+            device=device,
+            color=color,
+            mode=mode,
+            brightness=brightness,
+            zone_index=zone_index,
+            zone_name=zone_name or "all zones",
+            path=log_file,
+        )
+
+    try:
+        msi_native.session().apply(
+            zone_name,
+            rgb,
+            effect,
+            brightness=level,
+        )
+    except OSError as exc:
+        raise LightingError(f"Native MSI write failed: {exc}") from exc
+
+
+def stop_native() -> None:
+    """Stop the native animation thread, if any."""
+
+    msi_native.stop_session()
+
+
 def apply_color(
     device: LightingDevice,
     color: str,
@@ -322,15 +439,27 @@ def apply_color(
     write_log: bool = True,
     log_file: Path | None = None,
 ) -> None:
-    """Apply a color through OpenRGB.
+    """Apply a colour through the native MSI path or OpenRGB.
 
-    The exact command is written to :func:`log_path` before OpenRGB starts, so
+    The exact command is written to :func:`log_path` before the write starts, so
     a shutdown during a firmware effect leaves evidence of what was sent.
 
     Raises:
         LightingError: if OpenRGB is missing, times out, or reports a failure.
         ValueError: if *color* is not a valid RGB hex color.
     """
+
+    if device.native:
+        apply_native(
+            device,
+            color,
+            mode=mode,
+            brightness=brightness,
+            zone_index=zone_index,
+            write_log=write_log,
+            log_file=log_file,
+        )
+        return
 
     command = build_apply_command(
         device,
