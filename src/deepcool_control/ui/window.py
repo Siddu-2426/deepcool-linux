@@ -8,7 +8,7 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, Gio, Gtk, Pango  # noqa: E402
 
-from .. import lighting  # noqa: E402
+from .. import lighting, system  # noqa: E402
 from ..config import APP_NAME, VERSION  # noqa: E402
 from ..controller import Controller  # noqa: E402
 from .dashboard import DashboardPage  # noqa: E402
@@ -40,6 +40,7 @@ class MainWindow(Adw.ApplicationWindow):
         super().__init__(application=application)
         self.controller = controller
         self._closed = False
+        self._background_notified = False
         self._nav_rows: dict[str, Gtk.ListBoxRow] = {}
         self._accent_provider = Gtk.CssProvider()
         display = Gdk.Display.get_default()
@@ -286,6 +287,7 @@ class MainWindow(Adw.ApplicationWindow):
             "show-settings": lambda: self.show_page("settings"),
             "send-now": self._send_now,
             "grant-access": self.controller.install_permissions,
+            "close-window": self.close,
         }
         for name, callback in actions.items():
             action = Gio.SimpleAction.new(name, None)
@@ -300,6 +302,7 @@ class MainWindow(Adw.ApplicationWindow):
             app.set_accels_for_action("win.show-settings", ["<Control>4", "<Control>comma"])
             app.set_accels_for_action("win.show-lighting", ["<Control>5"])
             app.set_accels_for_action("win.send-now", ["<Control>r"])
+            app.set_accels_for_action("win.close-window", ["<Control>w"])
             app.set_accels_for_action("app.quit", ["<Control>q"])
 
     def _send_now(self) -> None:
@@ -435,7 +438,39 @@ class MainWindow(Adw.ApplicationWindow):
 
     # ----------------------------------------------------------------- close
     def _on_close(self, _window: Gtk.Window) -> bool:
-        if not self._closed:
-            self._closed = True
-            self.controller.shutdown()
-        return False
+        if self._closed:
+            return False
+
+        # With the background service enabled, hand both the display and the
+        # native MSI lighting over to systemd and let the window close.  The
+        # service is started before we release the devices, so it retries if
+        # it loses the race and then picks them up as the GUI shuts down.
+        if self.controller.config.service:
+            ok, message = system.set_service(True)
+            if ok:
+                self._closed = True
+                return False
+            self.controller.emit(
+                "toast",
+                f"Could not start the background service: {message}",
+                "error",
+            )
+
+        # Without the service, keep this process alive.  Hiding the window
+        # leaves the display timer and the native RGB animation thread
+        # running; activating the app again only needs to present the window.
+        self.set_visible(False)
+        if not self._background_notified:
+            self._background_notified = True
+            app = self.get_application()
+            if app is not None:
+                notification = Gio.Notification.new(
+                    "DeepCool Control is still running"
+                )
+                notification.set_body(
+                    "Display updates and cabinet lighting continue in the "
+                    "background. Use Quit from the app menu to stop them."
+                )
+                notification.set_default_action("app.show-window")
+                app.send_notification("background", notification)
+        return True

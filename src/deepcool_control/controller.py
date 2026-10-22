@@ -277,6 +277,11 @@ class Controller(GObject.Object):
 
     def toggle_service(self, enabled: bool) -> bool:
         if enabled:
+            # The daemon owns both hidraw devices while it runs, including
+            # the native MSI lighting animation.
+            from . import lighting
+
+            lighting.stop_native()
             self._close_session()
             ok, message = system.set_service(True)
         else:
@@ -286,7 +291,14 @@ class Controller(GObject.Object):
             self.config.service = enabled
             self.config.save()
             self.emit("config-changed")
-            GLib.timeout_add(500, self._retry_open)
+            if enabled:
+                # Do not race the new daemon for the display.  The GUI keeps
+                # showing live state but lets systemd write the packets.
+                self.service_owner = True
+                self.writable = False
+                self.emit("state-changed")
+            else:
+                GLib.timeout_add(500, self._retry_open)
         return ok
 
     def toggle_autostart(self, enabled: bool) -> bool:

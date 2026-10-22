@@ -60,10 +60,21 @@ Both readouts can independently cycle between temperature and usage. Use the
 Display and Sensors pages to choose sources, units, refresh interval, and
 auto-cycle timing.
 
-### Keep the display running
+### Keep the display and lighting running
 
 Enable **Settings → Background service**. This creates a systemd user unit that
-keeps the panel updated after the window is closed.
+owns both the CH-series display and the native MSI per-LED lighting animation.
+
+When the service is enabled, closing the window hands both devices to systemd
+and exits the GUI. Breathing, meteor, and the other animated MSI effects keep
+running, and the panel keeps updating. While the GUI is open it acts as a
+control panel: lighting changes are saved and the service applies them, so the
+GUI never opens a second MSI writer.
+
+If the service is disabled, closing the window hides the app instead of
+quitting it. The display timer and the native RGB animation stay alive in the
+GUI process; open the app again to show the window. Use **Quit** from the menu
+to stop both when the service is disabled.
 
 ```bash
 systemctl --user status deepcool-control
@@ -103,7 +114,9 @@ On this board the controller accepts the documented zone/effect packet
 fans. The native backend therefore switches the controller to direct mode and
 streams the per-LED frame (`0x53`). Static writes one frame and releases the
 HID device; animated effects render on the host at 30 fps and keep it open.
-No firmware, EEPROM, fan, or voltage commands are sent.
+With **Background service** enabled, the daemon owns this stream, so the
+animation continues after the window is closed. No firmware, EEPROM, fan, or
+voltage commands are sent.
 
 Native effects: `Static`, `Breathing`, `Flashing`, `Double flashing`, `Meteor`,
 `Blink`, `Color pulse`, `Color wave`, `Marquee`, `Visor`, `Rainbow flashing`,

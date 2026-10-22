@@ -9,7 +9,8 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from deepcool_control import msi_native  # noqa: E402
+from deepcool_control import daemon, msi_native  # noqa: E402
+from deepcool_control.config import Config  # noqa: E402
 from deepcool_control.lighting import (  # noqa: E402
     LightingDevice,
     apply_native,
@@ -108,6 +109,77 @@ class ApplyTests(unittest.TestCase):
                 zone_index=None,
             ),
             (),
+        )
+
+
+class BackgroundLightingTests(unittest.TestCase):
+    def _config(self, **changes: object) -> Config:
+        config = Config(
+            lighting_device="MSI MYSTIC LIGHT (native)",
+            lighting_zone="JRAINBOW2",
+            lighting_color="#FF8000",
+            lighting_mode="Meteor",
+            lighting_brightness=40,
+            lighting_safe_mode=False,
+            service=True,
+        ).validate()
+        for key, value in changes.items():
+            setattr(config, key, value)
+        return config.validate()
+
+    def test_native_key_for_background_service(self) -> None:
+        key = daemon._native_lighting_key(self._config())
+        self.assertEqual(key, ("JRAINBOW2", (255, 128, 0), "meteor", 40))
+
+    def test_native_key_skips_safe_or_non_native_devices(self) -> None:
+        self.assertIsNone(
+            daemon._native_lighting_key(self._config(lighting_safe_mode=True))
+        )
+        self.assertIsNone(
+            daemon._native_lighting_key(
+                self._config(lighting_device="MSI PRO B650M-A WIFI (MS-7D77)")
+            )
+        )
+        self.assertIsNone(
+            daemon._native_lighting_key(self._config(lighting_device=""))
+        )
+
+    def test_background_service_applies_native_state(self) -> None:
+        state: dict[str, object] = {"key": None, "active": False}
+        config = self._config()
+        with (
+            mock.patch.object(msi_native, "find_devices", return_value=[object()]),
+            mock.patch.object(msi_native, "session") as session,
+        ):
+            daemon._sync_native_lighting(config, state)
+
+        session.return_value.apply.assert_called_once_with(
+            "JRAINBOW2",
+            (255, 128, 0),
+            "meteor",
+            brightness=40,
+        )
+        self.assertTrue(state["active"])
+        self.assertEqual(state["key"], daemon._native_lighting_key(config))
+
+    def test_background_service_off_writes_black(self) -> None:
+        state: dict[str, object] = {"key": None, "active": False}
+        config = self._config(
+            lighting_mode="Off",
+            lighting_color="#000000",
+            lighting_brightness=0,
+        )
+        with (
+            mock.patch.object(msi_native, "find_devices", return_value=[object()]),
+            mock.patch.object(msi_native, "session") as session,
+        ):
+            daemon._sync_native_lighting(config, state)
+
+        session.return_value.apply.assert_called_once_with(
+            "JRAINBOW2",
+            (0, 0, 0),
+            "off",
+            brightness=0,
         )
 
 

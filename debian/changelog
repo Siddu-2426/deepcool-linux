@@ -1,3 +1,11 @@
+deepcool-control (1.2.3) unstable; urgency=medium
+
+  * Let the background service own the display and native MSI lighting.
+  * Hand off both devices when the window closes so animations continue.
+  * Hide the window instead of quitting when the service is disabled.
+
+ -- DeepCool Linux contributors <noreply@example.com>  Thu, 22 Oct 2026 00:00:00 +0000
+
 deepcool-control (1.2.2) unstable; urgency=medium
 
   * Use a native MSI Mystic Light HID backend for MS-7D77 boards.

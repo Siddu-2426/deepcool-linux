@@ -564,6 +564,12 @@ class NativeSession:
             if self.device is not None:
                 self.device.close()
 
+    @property
+    def running(self) -> bool:
+        """Whether the animation worker is currently alive."""
+
+        return self._thread is not None and self._thread.is_alive()
+
     def render(self, t: float | None = None) -> list[tuple[int, int, int]]:
         now = time.monotonic() if t is None else t
         pixels: list[tuple[int, int, int]] = [(0, 0, 0)] * LEDS_TOTAL

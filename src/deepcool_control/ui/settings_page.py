@@ -102,7 +102,8 @@ class SettingsPage(Gtk.ScrolledWindow):
 
         self.service_row = Adw.SwitchRow(title="Background service")
         self.service_row.set_subtitle(
-            "Keep the display updated after the window is closed (systemd user service)."
+            "Keep the display and cabinet lighting running after the window "
+            "closes (systemd user service)."
         )
         self.service_row.connect("notify::active", self._on_service)
         startup.add(self.service_row)

@@ -11,7 +11,7 @@ gi.require_version("Gdk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, GLib, Gtk  # noqa: E402
 
-from .. import lighting  # noqa: E402
+from .. import lighting, system  # noqa: E402
 from ..controller import Controller  # noqa: E402
 from .widgets import card, section_title  # noqa: E402
 
@@ -573,6 +573,17 @@ class LightingPage(Gtk.ScrolledWindow):
         self._set_color(color)
         self.color_row.set_subtitle(f"{color} selected. Press Apply to send.")
         self._busy = True
+        if device.native and system.service_active():
+            # The background service owns the MSI HID device while it is
+            # running.  Save the state and let the daemon apply it; opening a
+            # second writer here would fight over the per-LED stream.
+            lighting.stop_native()
+            self.apply_row.set_subtitle(
+                "Saved. The background service is applying this lighting…"
+            )
+            self._update_controls()
+            GLib.timeout_add(450, self._background_apply_done)
+            return
         self.apply_row.set_subtitle("Applying lighting…")
         self._update_controls()
         self._run_async(
@@ -665,6 +676,19 @@ class LightingPage(Gtk.ScrolledWindow):
         self.apply_row.set_subtitle("Applied. Press Apply again after changing the controls.")
         self._update_controls()
         self.controller.emit("toast", "Case lighting updated", "success")
+        return False
+
+    def _background_apply_done(self) -> bool:
+        self._busy = False
+        self.apply_row.set_subtitle(
+            "Saved. The background service applies lighting changes within 2 seconds."
+        )
+        self._update_controls()
+        self.controller.emit(
+            "toast",
+            "Lighting saved for the background service",
+            "success",
+        )
         return False
 
     def _apply_failed(self, message: str) -> bool:

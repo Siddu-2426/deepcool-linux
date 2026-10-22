@@ -227,9 +227,11 @@ def _run_gui(demo: bool = False) -> int:
                 if start_page:
                     self.window.show_page(start_page, animate=False)
                 self._apply_scheme()
+                self.withdraw_notification("background")
                 self.window.present()
                 self.controller.start()
             else:
+                self.withdraw_notification("background")
                 self.window.present()
 
         def _apply_scheme(self) -> None:
@@ -247,14 +249,24 @@ def _run_gui(demo: bool = False) -> int:
         def do_shutdown(self) -> None:
             if self.controller is not None and not self._stopped:
                 self._stopped = True
+                config = self.controller.config
                 lighting.stop_native()
                 self.controller.shutdown()
+                if config.service and not self.controller.demo:
+                    # Release both hidraw devices before asking systemd to
+                    # take over the display and the native MSI lighting.
+                    from . import system
+
+                    system.set_service(True)
             Adw.Application.do_shutdown(self)
 
         def do_startup(self) -> None:
             Adw.Application.do_startup(self)
             self.set_accels_for_action("app.quit", ["<Control>q"])
             self.set_accels_for_action("app.about", ["F1"])
+            show = Gio.SimpleAction.new("show-window", None)
+            show.connect("activate", lambda _action, _param: self.activate())
+            self.add_action(show)
 
     if demo:
         os.environ["DEEPCOOL_DEMO"] = "1"
